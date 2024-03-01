@@ -13,6 +13,8 @@
 #include <algorithm>
 #include <cassert>
 #include <iostream>
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 
 using namespace Microsoft::WRL;
 
@@ -117,13 +119,23 @@ void DirectXRenderer::Render() {
 
     commandList->ResourceBarrier(1, &barrierBefore);
 
-    static const float clearColor[] = {0.0f, 0.0f, 0.0f, 1.0f};
+    UpdateConstantBuffer();
+
+    static const float clearColor[] = {1.0f, 1.0f, 1.0f, 1.0f};
 
     commandList->ClearRenderTargetView(renderTargetHandle, clearColor, 0, nullptr);
 
     commandList->SetPipelineState(mPso.Get());
     commandList->SetGraphicsRootSignature(mRootSignature.Get());
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    // Set the descriptor heap containing the texture srv
+    ID3D12DescriptorHeap* heaps[] = {mSrvDescriptorHeap.Get()};
+    commandList->SetDescriptorHeaps(1, heaps);
+    // Set slot 0 of our root signature to point to our descriptor heap with
+    // the texture SRV
+    commandList->SetGraphicsRootDescriptorTable(0, mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+    // Set slot 1 of our root signature to the constant buffer view
+    commandList->SetGraphicsRootConstantBufferView(1, mConstantBuffers[m_currentFrame]->GetGPUVirtualAddress());
     commandList->IASetVertexBuffers(0, 1, &mVertexBufferView);
     commandList->IASetIndexBuffer(&mIndexBufferView);
     commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
@@ -252,8 +264,20 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     mDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, uploadCommandAllocator.Get(), nullptr,
                                IID_PPV_ARGS(&uploadCommandList));
 
+    // We need one descriptor heap to store our texture SRV which cannot go
+    // into the root signature. So create a SRV type heap with one entry
+    D3D12_DESCRIPTOR_HEAP_DESC descriptorHeapDesc = {};
+    descriptorHeapDesc.NumDescriptors = 1;
+    // This heap contains SRV, UAV or CBVs -- in our case one SRV
+    descriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    descriptorHeapDesc.NodeMask = 0;
+    descriptorHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+
+    mDevice->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap));
     CreateRootSignature();
     CreatePipelineStateObject();
+    CreateConstantBuffer();
+    CreateTexture(uploadCommandList.Get());
     CreateMeshBuffers(uploadCommandList.Get());
 
     uploadCommandList->Close();
@@ -354,8 +378,6 @@ void DirectXRenderer::CreatePipelineStateObject() {
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}};
 
-    static const D3D_SHADER_MACRO macros[] = {{"D3D12_SAMPLE_BASIC", "1"}, {nullptr, nullptr}};
-
 #if defined(_DEBUG)
     // Enable better shader debugging with the graphics debugging tools.
     UINT compileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
@@ -364,10 +386,10 @@ void DirectXRenderer::CreatePipelineStateObject() {
 #endif
 
     ComPtr<ID3DBlob> vertexShader;
-    D3DCompile(Shaders, sizeof(Shaders), "", macros, nullptr, "VS_main", "vs_5_0", compileFlags, 0, &vertexShader, nullptr);
+    D3DCompile(vs_shader, sizeof(vs_shader), "", nullptr, nullptr, "VS_main", "vs_5_1", compileFlags, 0, &vertexShader, nullptr);
 
     ComPtr<ID3DBlob> pixelShader;
-    D3DCompile(Shaders, sizeof(Shaders), "", macros, nullptr, "PS_main", "ps_5_0", compileFlags, 0, &pixelShader, nullptr);
+    D3DCompile(fs_shader, sizeof(fs_shader), "", nullptr, nullptr, "PS_main", "ps_5_1", compileFlags, 0, &pixelShader, nullptr);
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
     psoDesc.VS.BytecodeLength = vertexShader->GetBufferSize();
@@ -400,25 +422,107 @@ void DirectXRenderer::CreatePipelineStateObject() {
     mDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPso));
 }
 
-///////////////////////////////////////////////////////////////////////////////
+void DirectXRenderer::CreateTexture(ID3D12GraphicsCommandList* uploadCommandList) {
+    int texWidth, texHeight, texChannels;
+    std::size_t imageSizeTotal = 0u;
+    using dataTexturetPtr = std::unique_ptr<stbi_uc, decltype(&stbi_image_free)>;
+
+    std::string path = "textures\\texture.png";
+
+    /// STBI_rgb_alpha coerces to have ALPHA chanel for consistency with alphaless images
+    stbi_uc* pixels = stbi_load(path.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+    assert(pixels);
+    dataTexturetPtr textureData(pixels, stbi_image_free);
+    imageSizeTotal += texWidth * texHeight * 4LL;
+
+    static const auto defaultHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+    const auto resourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, texWidth, texHeight, 1, 1);
+
+    mDevice->CreateCommittedResource(&defaultHeapProperties, D3D12_HEAP_FLAG_NONE, &resourceDesc, D3D12_RESOURCE_STATE_COPY_DEST,
+                                     nullptr, IID_PPV_ARGS(&mImage));
+
+    static const auto uploadHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
+    const auto uploadBufferSize = GetRequiredIntermediateSize(mImage.Get(), 0, 1);
+    const auto uploadBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize);
+
+    mDevice->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &uploadBufferDesc,
+                                     D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&mUploadImage));
+
+    D3D12_SUBRESOURCE_DATA srcData;
+    srcData.pData = textureData.get();
+    srcData.RowPitch = texWidth * 4;
+    srcData.SlicePitch = texWidth * texHeight * 4;
+
+    UpdateSubresources(uploadCommandList, mImage.Get(), mUploadImage.Get(), 0, 0, 1, &srcData);
+    const auto transition = CD3DX12_RESOURCE_BARRIER::Transition(mImage.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+                                                                 D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    uploadCommandList->ResourceBarrier(1, &transition);
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC shaderResourceViewDesc = {};
+    shaderResourceViewDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    shaderResourceViewDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    shaderResourceViewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+    shaderResourceViewDesc.Texture2D.MipLevels = 1;
+    shaderResourceViewDesc.Texture2D.MostDetailedMip = 0;
+    shaderResourceViewDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+
+    mDevice->CreateShaderResourceView(mImage.Get(), &shaderResourceViewDesc,
+                                      mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+}
+
 void DirectXRenderer::CreateRootSignature() {
     // We have two root parameters, one is a pointer to a descriptor heap
     // with a SRV, the second is a constant buffer view
-    CD3DX12_ROOT_PARAMETER parameters[1];
+    CD3DX12_ROOT_PARAMETER parameters[2];
+
+    // Create a descriptor table with one entry in our descriptor heap
+    CD3DX12_DESCRIPTOR_RANGE range{D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0};
+    parameters[0].InitAsDescriptorTable(1, &range);
 
     // Our constant buffer view
-    parameters[0].InitAsConstantBufferView(0, 0, D3D12_SHADER_VISIBILITY_VERTEX);
+    parameters[1].InitAsConstantBufferView(0, 0, D3D12_SHADER_VISIBILITY_VERTEX);
+
+    // We don't use another descriptor heap for the sampler, instead we use a
+    // static sampler
+    CD3DX12_STATIC_SAMPLER_DESC samplers[1];
+    samplers[0].Init(0, D3D12_FILTER_MIN_MAG_LINEAR_MIP_POINT);
 
     CD3DX12_ROOT_SIGNATURE_DESC descRootSignature;
 
     // Create the root signature
-    descRootSignature.Init(1, parameters, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+    descRootSignature.Init(2, parameters, 1, samplers, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     ComPtr<ID3DBlob> rootBlob;
     ComPtr<ID3DBlob> errorBlob;
     D3D12SerializeRootSignature(&descRootSignature, D3D_ROOT_SIGNATURE_VERSION_1, &rootBlob, &errorBlob);
 
     mDevice->CreateRootSignature(0, rootBlob->GetBufferPointer(), rootBlob->GetBufferSize(), IID_PPV_ARGS(&mRootSignature));
+}
+
+void DirectXRenderer::CreateConstantBuffer() {
+    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        static const auto uploadHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
+        static const auto constantBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(sizeof(ConstantBuffer));
+
+        mDevice->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &constantBufferDesc,
+                                         D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&mConstantBuffers[i]));
+
+        void* p;
+        mConstantBuffers[i]->Map(0, nullptr, &p);
+        memcpy(p, &mConstantBufferData, sizeof(mConstantBufferData));
+        mConstantBuffers[i]->Unmap(0, nullptr);
+    }
+}
+
+void DirectXRenderer::UpdateConstantBuffer() {
+    static int counter = 0;
+    counter++;
+    mConstantBufferData.x = std::abs(std::sin(static_cast<float>(counter) / 64.0f));
+
+    void* data;
+    mConstantBuffers[m_currentFrame]->Map(0, nullptr, &data);
+    memcpy(data, &mConstantBufferData, sizeof(mConstantBufferData));
+    mConstantBuffers[m_currentFrame]->Unmap(0, nullptr);
 }
 
 void DirectXRenderer::Shutdown() {
@@ -459,9 +563,6 @@ void DirectXRenderer::CreateDeviceAndSwapChain() {
     ::ZeroMemory(&swapChainDesc, sizeof(swapChainDesc));
 
     swapChainDesc.BufferCount = MAX_FRAMES_IN_FLIGHT;
-    // This is _UNORM but we'll use a _SRGB view on this. See
-    // SetupRenderTargets() for details, it must match what
-    // we specify here
     swapChainDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     swapChainDesc.BufferDesc.Width = mWindow->width();
