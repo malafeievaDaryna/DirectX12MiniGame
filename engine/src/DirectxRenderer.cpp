@@ -13,8 +13,27 @@
 #include <algorithm>
 #include <cassert>
 #include <iostream>
+#include <WICTextureLoader.h>
+#include <ResourceUploadBatch.h >
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
+
+template <typename... Args>
+void log_info(Args... args) {
+    ((std::cout << " " << args), ...) << std::endl;
+}
+template <typename... Args>
+void log_err(Args... args) {
+    ((std::cerr << " " << args), ...) << std::endl;
+}
+#ifdef NDEBUG
+#define log_debug(...) ((void)0)
+#else
+template <typename... Args>
+void log_debug(Args... args) {
+    log_info(args...);
+}
+#endif
 
 using namespace Microsoft::WRL;
 
@@ -181,6 +200,25 @@ bool DirectXRenderer::Run() {
         }
     }
 
+    auto kb = mKeyboard->GetState();
+    if (kb.Escape) {
+        return false;
+    }
+    if (kb.W || kb.Up) {
+        log_debug("Up");
+    }
+    if (kb.A || kb.Left) {
+        log_debug("Left");
+    }
+    if (kb.S || kb.Down) {
+        log_debug("Down");
+    }
+    if (kb.D || kb.Right) {
+        log_debug("Right");
+    }
+
+    log_debug("x", mMouse->GetState().x, "y", mMouse->GetState().y);
+
     Render();
 
     return true;
@@ -240,6 +278,10 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     mWindow.reset(new Window("DirectXMiniGame", 1280, 720));
     mWindow.get_deleter() = [](Window* ptr) { delete ptr; };
 
+    mKeyboard = std::make_unique<DirectX::Keyboard>();
+    mMouse = std::make_unique<DirectX::Mouse>();
+    mMouse->SetWindow(mWindow->hwnd());
+
     CreateDeviceAndSwapChain();
 
     mRectScissor = {0, 0, (long)mWindow->width(), (long)mWindow->height()};
@@ -251,7 +293,6 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
                                    IID_PPV_ARGS(&mCommandLists[i]));
         mCommandLists[i]->Close();
     }
-
     // Create our upload fence, command list and command allocator
     // This will be only used while creating the mesh buffer and the texture
     // to upload data to the GPU.
@@ -420,6 +461,18 @@ void DirectXRenderer::CreatePipelineStateObject() {
     psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 
     mDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPso));
+}
+
+void DirectXRenderer::CreateTextureWIC() {
+    DirectX::ResourceUploadBatch resourceUpload(mDevice.Get());
+    resourceUpload.Begin();
+    DirectX::CreateWICTextureFromFileEx(mDevice.Get(), resourceUpload, L"textures\\texture.png", 0, D3D12_RESOURCE_FLAG_NONE,
+                                        DirectX::WIC_LOADER_FORCE_RGBA32 | DirectX::WIC_LOADER_MIP_AUTOGEN,
+                                        mImage.ReleaseAndGetAddressOf());
+    // Upload the resources to the GPU.
+    auto uploadResourcesFinished = resourceUpload.End(mCommandQueue.Get());
+    // Wait for the upload thread to terminate
+    uploadResourcesFinished.wait();
 }
 
 void DirectXRenderer::CreateTexture(ID3D12GraphicsCommandList* uploadCommandList) {

@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.21)
 set(APP_NAME DirectXMiniGame)
 project(${APP_NAME} VERSION 1.0 LANGUAGES CXX)
 
+add_subdirectory(${CMAKE_SOURCE_DIR}/DirectXTK12 ${CMAKE_BINARY_DIR}/bin/DirectXTK12)
+
 set_target_properties(${TARGET_NAME} PROPERTIES C_STANDARD 17)
 set_target_properties(${TARGET_NAME} PROPERTIES CMAKE_C_STANDARD_REQUIRED True)
 
@@ -25,7 +27,7 @@ file(GLOB_RECURSE HEADERS "${CMAKE_SOURCE_DIR}/engine/include/*.h")
 file(GLOB_RECURSE SOURCES "${CMAKE_SOURCE_DIR}/engine/src/*.cpp")
 set(THIRD_PARTY_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/engine/3d_party/")
 file(GLOB_RECURSE include_list LIST_DIRECTORIES true "${CMAKE_SOURCE_DIR}/engine/include")
-include_directories(${include_list} ${THIRD_PARTY_INCLUDE_DIR})
+include_directories(${include_list} ${THIRD_PARTY_INCLUDE_DIR} "${CMAKE_SOURCE_DIR}/DirectXTK12/Inc")
 
 add_executable(${APP_NAME} ${HEADERS} ${SOURCES})
-target_link_libraries(${APP_NAME} "d3d12.lib" "d3dcompiler.lib" "dxgi.lib" "dxguid.lib")
+target_link_libraries(${APP_NAME} "d3d12.lib" "d3dcompiler.lib" "dxgi.lib" "dxguid.lib" DirectXTK12)

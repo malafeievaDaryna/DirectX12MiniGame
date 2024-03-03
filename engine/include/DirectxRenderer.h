@@ -8,6 +8,8 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <Keyboard.h>
+#include <Mouse.h>
 
 class Window;
 
@@ -30,6 +32,7 @@ private:
     bool CheckTearingSupport();
     void CreateConstantBuffer();
     void CreateTexture(ID3D12GraphicsCommandList* uploadCommandList);
+    void CreateTextureWIC();
     void CreateMeshBuffers(ID3D12GraphicsCommandList* uploadCommandList);
     void CreateRootSignature();
     void CreatePipelineStateObject();
@@ -39,6 +42,9 @@ private:
 
 private:
     std::unique_ptr<Window, void (*)(Window*)> mWindow;
+    std::unique_ptr<DirectX::Keyboard> mKeyboard{nullptr};
+    std::unique_ptr<DirectX::Mouse> mMouse{nullptr};
+
     D3D12_VIEWPORT mViewport{};
     D3D12_RECT mRectScissor{};
     Microsoft::WRL::ComPtr<IDXGISwapChain> mSwapChain{};
@@ -65,7 +71,6 @@ private:
 
     Microsoft::WRL::ComPtr<ID3D12Resource> mImage;
     Microsoft::WRL::ComPtr<ID3D12Resource> mUploadImage;
-    std::vector<std::uint8_t> mImageData;
 
     Microsoft::WRL::ComPtr<ID3D12Resource> mIndexBuffer{};
     D3D12_INDEX_BUFFER_VIEW mIndexBufferView{};
