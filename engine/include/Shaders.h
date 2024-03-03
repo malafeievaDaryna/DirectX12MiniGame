@@ -1,7 +1,7 @@
 const char vs_shader[] =
     "cbuffer PerFaceConstants : register (b0)\n"
     "{\n"
-    "	float4 scale;\n"
+    "	matrix MVP;\n"
     "}\n"
     "struct VertexShaderOutput\n"
     "{\n"
@@ -12,9 +12,8 @@ const char vs_shader[] =
     "	float4 position : POSITION,\n"
     "	float2 uv : TEXCOORD)\n"
     "{\n"
-    "	VertexShaderOutput output;\n"
-    "	output.position = position;\n"
-    "	output.position.xy *= scale.x;\n"
+    "	VertexShaderOutput output;\n" 
+    "   output.position = mul(MVP, position);\n"
     "	output.uv = uv;\n"
     "	return output;\n"
     "}\n";

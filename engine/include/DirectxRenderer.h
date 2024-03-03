@@ -10,13 +10,14 @@
 #include <vector>
 #include <Keyboard.h>
 #include <Mouse.h>
+#include <directxmath.h>
 
 class Window;
 
 class DirectXRenderer {
-    static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 3;  /// triple buffering to maximize performance
+    static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 3;
     struct ConstantBuffer {
-        float x, y, z, w;
+        DirectX::XMMATRIX mvp;
     };
 public:
     DirectXRenderer();
@@ -44,6 +45,9 @@ private:
     std::unique_ptr<Window, void (*)(Window*)> mWindow;
     std::unique_ptr<DirectX::Keyboard> mKeyboard{nullptr};
     std::unique_ptr<DirectX::Mouse> mMouse{nullptr};
+    DirectX::XMMATRIX mModel{};
+    DirectX::XMMATRIX mView{};
+    DirectX::XMMATRIX mProj{};
 
     D3D12_VIEWPORT mViewport{};
     D3D12_RECT mRectScissor{};
@@ -74,7 +78,7 @@ private:
 
     Microsoft::WRL::ComPtr<ID3D12Resource> mIndexBuffer{};
     D3D12_INDEX_BUFFER_VIEW mIndexBufferView{};
-    ConstantBuffer mConstantBufferData = {0, 0, 0, 0};
+    ConstantBuffer mConstantBufferData{};
     Microsoft::WRL::ComPtr<ID3D12Resource> mConstantBuffers[MAX_FRAMES_IN_FLIGHT];
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> mCommandAllocators[MAX_FRAMES_IN_FLIGHT]{};
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> mCommandLists[MAX_FRAMES_IN_FLIGHT]{};

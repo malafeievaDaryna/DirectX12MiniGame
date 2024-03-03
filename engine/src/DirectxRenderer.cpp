@@ -275,12 +275,26 @@ void DirectXRenderer::SetupSwapChain() {
 }
 
 void DirectXRenderer::Initialize(const std::string& title, int width, int height) {
+    // Check for DirectX Math library support.
+    if (!DirectX::XMVerifyCPUSupport()) {
+        MessageBoxA(NULL, "Failed to verify DirectX Math library support.", "Error", MB_OK | MB_ICONERROR);
+        std::exit(-1);
+    }
+
     mWindow.reset(new Window("DirectXMiniGame", 1280, 720));
     mWindow.get_deleter() = [](Window* ptr) { delete ptr; };
 
     mKeyboard = std::make_unique<DirectX::Keyboard>();
     mMouse = std::make_unique<DirectX::Mouse>();
     mMouse->SetWindow(mWindow->hwnd());
+
+    const DirectX::XMVECTOR eye = DirectX::XMVectorSet(0, 0, -10, 1);
+    const DirectX::XMVECTOR target = DirectX::XMVectorSet(0, 0, 0, 1);
+    const DirectX::XMVECTOR up = DirectX::XMVectorSet(0, 1, 0, 0);
+    mView = DirectX::XMMatrixLookAtLH(eye, target, up);
+
+    float aspectRatio = static_cast<float>(mWindow->width()) / mWindow->height();
+    mProj = DirectX::XMMatrixPerspectiveFovLH(DirectX::XMConvertToRadians(45.0f), aspectRatio, 0.01f, 100.0f);
 
     CreateDeviceAndSwapChain();
 
@@ -444,6 +458,7 @@ void DirectXRenderer::CreatePipelineStateObject() {
     psoDesc.InputLayout.NumElements = std::extent<decltype(layout)>::value;
     psoDesc.InputLayout.pInputElementDescs = layout;
     psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE; // both faces drawn
     psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
     // Simple alpha blending
     psoDesc.BlendState.RenderTarget[0].BlendEnable = true;
@@ -568,9 +583,13 @@ void DirectXRenderer::CreateConstantBuffer() {
 }
 
 void DirectXRenderer::UpdateConstantBuffer() {
-    static int counter = 0;
-    counter++;
-    mConstantBufferData.x = std::abs(std::sin(static_cast<float>(counter) / 64.0f));
+    static float angle = 0.0f;
+    angle += 0.1f;
+    const DirectX::XMVECTOR rotationAxis = DirectX::XMVectorSet(0, 1, 0, 0);
+    mModel = DirectX::XMMatrixRotationAxis(rotationAxis, DirectX::XMConvertToRadians(angle));
+
+    DirectX::XMMATRIX modelView = DirectX::XMMatrixMultiply(mModel, mView);
+    mConstantBufferData.mvp = DirectX::XMMatrixMultiply(modelView, mProj);
 
     void* data;
     mConstantBuffers[m_currentFrame]->Map(0, nullptr, &data);
