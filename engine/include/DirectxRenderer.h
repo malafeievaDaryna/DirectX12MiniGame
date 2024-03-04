@@ -11,6 +11,7 @@
 #include <Keyboard.h>
 #include <Mouse.h>
 #include <directxmath.h>
+#include "MD5Loader.h"
 
 class Window;
 
@@ -82,4 +83,6 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> mConstantBuffers[MAX_FRAMES_IN_FLIGHT];
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> mCommandAllocators[MAX_FRAMES_IN_FLIGHT]{};
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> mCommandLists[MAX_FRAMES_IN_FLIGHT]{};
+
+    std::unique_ptr<MD5Loader> md5Loader{};
 };

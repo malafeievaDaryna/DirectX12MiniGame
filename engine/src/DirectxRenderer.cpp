@@ -139,6 +139,9 @@ void DirectXRenderer::Render() {
     commandList->ResourceBarrier(1, &barrierBefore);
 
     UpdateConstantBuffer();
+    static float delta = 0.0f; // TODO
+    delta += 0.00001f;
+    md5Loader->UpdateMD5Model(delta, 0);
 
     static const float clearColor[] = {1.0f, 1.0f, 1.0f, 1.0f};
 
@@ -155,9 +158,11 @@ void DirectXRenderer::Render() {
     commandList->SetGraphicsRootDescriptorTable(0, mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
     // Set slot 1 of our root signature to the constant buffer view
     commandList->SetGraphicsRootConstantBufferView(1, mConstantBuffers[m_currentFrame]->GetGPUVirtualAddress());
-    commandList->IASetVertexBuffers(0, 1, &mVertexBufferView);
+
+    /*commandList->IASetVertexBuffers(0, 1, &mVertexBufferView);
     commandList->IASetIndexBuffer(&mIndexBufferView);
-    commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
+    commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);*/
+    md5Loader->Draw(commandList);
 
     D3D12_RESOURCE_BARRIER barrierAfter;
     barrierAfter.Transition.pResource = mRenderTargets[m_currentFrame].Get();
@@ -288,13 +293,13 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     mMouse = std::make_unique<DirectX::Mouse>();
     mMouse->SetWindow(mWindow->hwnd());
 
-    const DirectX::XMVECTOR eye = DirectX::XMVectorSet(0, 0, -10, 1);
+    const DirectX::XMVECTOR eye = DirectX::XMVectorSet(0, 100, -500, 1);
     const DirectX::XMVECTOR target = DirectX::XMVectorSet(0, 0, 0, 1);
     const DirectX::XMVECTOR up = DirectX::XMVectorSet(0, 1, 0, 0);
     mView = DirectX::XMMatrixLookAtLH(eye, target, up);
 
     float aspectRatio = static_cast<float>(mWindow->width()) / mWindow->height();
-    mProj = DirectX::XMMatrixPerspectiveFovLH(DirectX::XMConvertToRadians(45.0f), aspectRatio, 0.01f, 100.0f);
+    mProj = DirectX::XMMatrixPerspectiveFovLH(DirectX::XMConvertToRadians(45.0f), aspectRatio, 0.01f, 1000.0f);
 
     CreateDeviceAndSwapChain();
 
@@ -333,7 +338,9 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     CreatePipelineStateObject();
     CreateConstantBuffer();
     CreateTexture(uploadCommandList.Get());
-    CreateMeshBuffers(uploadCommandList.Get());
+    //CreateMeshBuffers(uploadCommandList.Get());
+
+    md5Loader = std::make_unique<MD5Loader>(mDevice, "models/pinky.md5mesh", "models/idle1.md5anim");
 
     uploadCommandList->Close();
 
@@ -458,7 +465,7 @@ void DirectXRenderer::CreatePipelineStateObject() {
     psoDesc.InputLayout.NumElements = std::extent<decltype(layout)>::value;
     psoDesc.InputLayout.pInputElementDescs = layout;
     psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-    psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE; // both faces drawn
+    //psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE; // both faces drawn
     psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
     // Simple alpha blending
     psoDesc.BlendState.RenderTarget[0].BlendEnable = true;
