@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "Utils.h"
 
 using namespace DirectX;
 class MD5Loader {
@@ -79,7 +80,7 @@ class MD5Loader {
     };
 
     struct ModelSubset {
-        int texArrayIndex;
+        utils::Texture2DResource texture;
         int numTriangles;
 
         std::vector<Vertex> vertices;
@@ -105,16 +106,16 @@ class MD5Loader {
     };
 
 public:
-    MD5Loader(Microsoft::WRL::ComPtr<ID3D12Device> device, const std::string& md5ModelFileName,
+    MD5Loader(ID3D12Device* device,
+              ID3D12GraphicsCommandList* uploadCommandList, const std::string& md5ModelFileName,
               const std::string& md5AnimFileName);
     void UpdateMD5Model(float deltaTimeMS, int animation = 0u);
     void Draw(ID3D12GraphicsCommandList* commandList);
 
 private:
-    bool LoadMD5Model(const std::string& filename);
+    bool LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* uploadCommandList, const std::string& filename);
     bool LoadMD5Anim(const std::string& filename);
 
 private:
-    Microsoft::WRL::ComPtr<ID3D12Device> mDevice;
     Model3D mMD5Model;
 };

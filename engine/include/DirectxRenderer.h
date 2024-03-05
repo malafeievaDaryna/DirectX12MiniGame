@@ -34,8 +34,6 @@ private:
     void UpdateConstantBuffer();
     bool CheckTearingSupport();
     void CreateConstantBuffer();
-    void CreateTexture(ID3D12GraphicsCommandList* uploadCommandList);
-    void CreateTextureWIC();
     void CreateMeshBuffers(ID3D12GraphicsCommandList* uploadCommandList);
     void CreateRootSignature();
     void CreatePipelineStateObject();
@@ -66,19 +64,16 @@ private:
     UINT32 m_currentFrame{0u};
 
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mDSDescriptorHeap; // the heap for Depth Stencil buffer descriptor
-    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mRenderTargetDescriptorHeap{};
     UINT64 mRenderTargetViewDescriptorSize{0u};
 
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignature{};
     Microsoft::WRL::ComPtr<ID3D12PipelineState> mPso{};
 
+    // TODO move it from here
     Microsoft::WRL::ComPtr<ID3D12Resource> mUploadBuffer{};
     Microsoft::WRL::ComPtr<ID3D12Resource> mVertexBuffer{};
     D3D12_VERTEX_BUFFER_VIEW mVertexBufferView;
-
-    Microsoft::WRL::ComPtr<ID3D12Resource> mImage;
-    Microsoft::WRL::ComPtr<ID3D12Resource> mUploadImage;
 
     Microsoft::WRL::ComPtr<ID3D12Resource> mIndexBuffer{};
     D3D12_INDEX_BUFFER_VIEW mIndexBufferView{};

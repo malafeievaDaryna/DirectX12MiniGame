@@ -81,7 +81,7 @@ joints {
 
 mesh {
 	// meshes: Lthighmodel, Lcalfmodel, Rthighmodel, Rcalfmodel, Rfootmodel, Lfootmodel, Bodymodel2
-	shader "/textures/pinky_metal.png"
+	shader "pinky_metal.png"
 
 	numverts 569
 	vert 0 ( 0.6487069726 0.1163579822 ) 0 1
@@ -2466,7 +2466,7 @@ mesh {
 
 mesh {
 	// meshes: Mouthmodel, Bodymodel1
-	shader "/textures/pinky.png"
+	shader "pinky.png"
 
 	numverts 472
 	vert 0 ( 0.790982008 0.8103619814 ) 0 1
@@ -4526,7 +4526,7 @@ mesh {
 
 mesh {
 	// meshes: teeth01
-	shader "/textures/teeth.png"
+	shader "teeth.png"
 
 	numverts 22
 	vert 0 ( 0.5728449821 0.0050169826 ) 0 1
@@ -4599,7 +4599,7 @@ mesh {
 
 mesh {
 	// meshes: film01
-	shader "/textures/film.png"
+	shader "film.png"
 
 	numverts 10
 	vert 0 ( 0.0049510002 0.0670880079 ) 0 1
@@ -4638,7 +4638,7 @@ mesh {
 
 mesh {
 	// meshes: droolmesh
-	shader "/textures/pinky.png"
+	shader "pinky.png"
 
 	numverts 33
 	vert 0 ( 0.715780139 0.2972531319 ) 4 1

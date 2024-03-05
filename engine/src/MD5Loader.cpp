@@ -2,13 +2,11 @@
 #include "d3dx12.h"
 #include <cassert>
 #include <fstream>
-#include <iostream>
 
-MD5Loader::MD5Loader(Microsoft::WRL::ComPtr<ID3D12Device> device, const std::string& md5ModelFileName,
-                     const std::string& md5AnimFileName)
-    : mDevice{device} {
-    assert(mDevice.Get());
-    LoadMD5Model(md5ModelFileName);
+MD5Loader::MD5Loader(ID3D12Device* device, ID3D12GraphicsCommandList* uploadCommandList, const std::string& md5ModelFileName,
+                     const std::string& md5AnimFileName) {
+    assert(device && uploadCommandList);
+    LoadMD5Model(device, uploadCommandList, md5ModelFileName);
     LoadMD5Anim(md5AnimFileName);
 }
 
@@ -367,8 +365,8 @@ void MD5Loader::UpdateMD5Model(float deltaTimeMS, int animation) {
     }
 }
 
-bool MD5Loader::LoadMD5Model(const std::string& filename) {
-    std::vector<std::wstring> texFileNameArray; // TODO
+bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* uploadCommandList, const std::string& filename) {
+    assert(device && uploadCommandList);
     std::wifstream fileIn(filename.c_str());  // Open file
 
     std::wstring checkString;  // Stores the next string from our file
@@ -453,12 +451,7 @@ bool MD5Loader::LoadMD5Model(const std::string& filename) {
                 fileIn >> checkString;
                 while (checkString != L"}")  // Read until '}'
                 {
-                    // In this lesson, for the sake of simplicity, we will assume a textures filename is givin here.
-                    // Usually though, the name of a material (stored in a material library. Think back to the lesson on
-                    // loading .obj files, where the material library was contained in the file .mtl) is givin. Let this
-                    // be an exercise to load the material from a material library such as obj's .mtl file, instead of
-                    // just the texture like we will do here.
-                    if (checkString == L"shader")  // Load the texture or material
+                    if (checkString == L"shader")  // Load the texture
                     {
                         std::wstring fileNamePath;
                         fileIn >> fileNamePath;  // Get texture's filename
@@ -481,19 +474,7 @@ bool MD5Loader::LoadMD5Model(const std::string& filename) {
                         fileNamePath.erase(0, 1);
                         fileNamePath.erase(fileNamePath.size() - 1, 1);
 
-                        // check if this texture has already been loaded
-                        bool alreadyLoaded = false;
-                        for (int i = 0; i < texFileNameArray.size(); ++i) {
-                            if (fileNamePath == texFileNameArray[i]) {
-                                alreadyLoaded = true;
-                                subset.texArrayIndex = i;
-                            }
-                        }
-
-                        // if the texture is not already loaded, load it now
-                        if (!alreadyLoaded) {
-                            // fileNamePath.c_str() TODO texture loading
-                        }
+                        subset.texture = utils::CreateTexture(device, uploadCommandList, std::string(fileNamePath.begin(), fileNamePath.end()));
 
                         std::getline(fileIn, checkString);  // Skip rest of this line
                     } else if (checkString == L"numverts") {
@@ -726,10 +707,10 @@ bool MD5Loader::LoadMD5Model(const std::string& filename) {
                 const int32_t verticesSize = sizeof(Vertex) * subset.vertices.size();
                 const auto uploadHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
                 const auto uploadBufferVertDesc = CD3DX12_RESOURCE_DESC::Buffer(indicesSize);
-                mDevice->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &uploadBufferVertDesc,
+                device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &uploadBufferVertDesc,
                                                  D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&subset.indicesBuffer));
                 const auto uploadBufferIndDesc = CD3DX12_RESOURCE_DESC::Buffer(verticesSize);
-                mDevice->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &uploadBufferIndDesc,
+                device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &uploadBufferIndDesc,
                                                  D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&subset.verticesBuffer));
 
                 // Create buffer views
@@ -769,6 +750,14 @@ void MD5Loader::Draw(ID3D12GraphicsCommandList* commandList) {
     assert(commandList);
     assert(mMD5Model.numSubsets > 0);
     for (int k = 0; k < mMD5Model.numSubsets; k++) {
+        // Set the descriptor heap containing the texture srv
+        ID3D12DescriptorHeap* heaps[] = {mMD5Model.subsets[k].texture.srvDescriptorHeap.Get()};
+        commandList->SetDescriptorHeaps(1, heaps);
+        // Set slot 0 of our root signature to point to our descriptor heap with
+        // the texture SRV
+        commandList->SetGraphicsRootDescriptorTable(
+            0, mMD5Model.subsets[k].texture.srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+
         commandList->IASetVertexBuffers(0, 1, &mMD5Model.subsets[k].verticesBufferView);
         commandList->IASetIndexBuffer(&mMD5Model.subsets[k].indicesBufferView);
         commandList->DrawIndexedInstanced(mMD5Model.subsets[k].numTriangles * 3, 1, 0, 0, 0);

@@ -1,3 +1,4 @@
+namespace shaders {
 const char vs_shader[] =
     "cbuffer PerFaceConstants : register (b0)\n"
     "{\n"
@@ -12,7 +13,7 @@ const char vs_shader[] =
     "	float4 position : POSITION,\n"
     "	float2 uv : TEXCOORD)\n"
     "{\n"
-    "	VertexShaderOutput output;\n" 
+    "	VertexShaderOutput output;\n"
     "   output.position = mul(MVP, position);\n"
     "	output.uv = uv;\n"
     "	return output;\n"
@@ -25,3 +26,4 @@ const char fs_shader[] =
     "{\n"
     "	return inputTexture.Sample (texureSampler, uv);\n"
     "}\n";
+}

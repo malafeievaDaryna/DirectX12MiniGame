@@ -7,36 +7,16 @@
  */
 #include "Shaders.h"
 #include "d3dx12.h"
+#include "Utils.h"
 
-#include <WICTextureLoader.h>
 #include <d3dcompiler.h>
 #include <dxgi1_5.h>
 #include <ResourceUploadBatch.h >
 #include <algorithm>
 #include <cassert>
-#include <iostream>
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
-
-template <typename... Args>
-void log_info(Args... args) {
-    ((std::cout << " " << args), ...) << std::endl;
-}
-template <typename... Args>
-void log_err(Args... args) {
-    ((std::cerr << " " << args), ...) << std::endl;
-    std::exit(-1);
-}
-#ifdef NDEBUG
-#define log_debug(...) ((void)0)
-#else
-template <typename... Args>
-void log_debug(Args... args) {
-    log_info(args...);
-}
-#endif
 
 using namespace Microsoft::WRL;
+using namespace utils;
 
 namespace {
 struct RenderEnvironment {
@@ -157,12 +137,6 @@ void DirectXRenderer::Render() {
     commandList->SetPipelineState(mPso.Get());
     commandList->SetGraphicsRootSignature(mRootSignature.Get());
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    // Set the descriptor heap containing the texture srv
-    ID3D12DescriptorHeap* heaps[] = {mSrvDescriptorHeap.Get()};
-    commandList->SetDescriptorHeaps(1, heaps);
-    // Set slot 0 of our root signature to point to our descriptor heap with
-    // the texture SRV
-    commandList->SetGraphicsRootDescriptorTable(0, mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
     // Set slot 1 of our root signature to the constant buffer view
     commandList->SetGraphicsRootConstantBufferView(1, mConstantBuffers[m_currentFrame]->GetGPUVirtualAddress());
 
@@ -365,24 +339,12 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     ComPtr<ID3D12GraphicsCommandList> uploadCommandList;
     mDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, uploadCommandAllocator.Get(), nullptr,
                                IID_PPV_ARGS(&uploadCommandList));
-
-    // We need one descriptor heap to store our texture SRV which cannot go
-    // into the root signature. So create a SRV type heap with one entry
-    D3D12_DESCRIPTOR_HEAP_DESC descriptorHeapDesc = {};
-    descriptorHeapDesc.NumDescriptors = 1;
-    // This heap contains SRV, UAV or CBVs -- in our case one SRV
-    descriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    descriptorHeapDesc.NodeMask = 0;
-    descriptorHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-
-    mDevice->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap));
     CreateRootSignature();
     CreatePipelineStateObject();
     CreateConstantBuffer();
-    CreateTexture(uploadCommandList.Get());
-    // CreateMeshBuffers(uploadCommandList.Get());
 
-    md5Loader = std::make_unique<MD5Loader>(mDevice, "models/pinky.md5mesh", "models/idle1.md5anim");
+    md5Loader =
+        std::make_unique<MD5Loader>(mDevice.Get(), uploadCommandList.Get(), "models/pinky.md5mesh", "models/idle1.md5anim");
 
     uploadCommandList->Close();
 
@@ -405,6 +367,7 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     CloseHandle(waitEvent);
 }
 
+// TODO
 void DirectXRenderer::CreateMeshBuffers(ID3D12GraphicsCommandList* uploadCommandList) {
     struct Vertex {
         float position[3];
@@ -490,10 +453,14 @@ void DirectXRenderer::CreatePipelineStateObject() {
 #endif
 
     ComPtr<ID3DBlob> vertexShader;
-    D3DCompile(vs_shader, sizeof(vs_shader), "", nullptr, nullptr, "VS_main", "vs_5_1", compileFlags, 0, &vertexShader, nullptr);
+    D3DCompile(shaders::vs_shader, sizeof(shaders::vs_shader), "", nullptr, nullptr, "VS_main", "vs_5_1", compileFlags, 0,
+               &vertexShader,
+               nullptr);
 
     ComPtr<ID3DBlob> pixelShader;
-    D3DCompile(fs_shader, sizeof(fs_shader), "", nullptr, nullptr, "PS_main", "ps_5_1", compileFlags, 0, &pixelShader, nullptr);
+    D3DCompile(shaders::fs_shader, sizeof(shaders::fs_shader), "", nullptr, nullptr, "PS_main", "ps_5_1", compileFlags, 0,
+               &pixelShader,
+               nullptr);
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
     psoDesc.VS.BytecodeLength = vertexShader->GetBufferSize();
@@ -527,66 +494,6 @@ void DirectXRenderer::CreatePipelineStateObject() {
     psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
 
     mDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPso));
-}
-
-void DirectXRenderer::CreateTextureWIC() {
-    DirectX::ResourceUploadBatch resourceUpload(mDevice.Get());
-    resourceUpload.Begin();
-    DirectX::CreateWICTextureFromFileEx(mDevice.Get(), resourceUpload, L"textures\\texture.png", 0, D3D12_RESOURCE_FLAG_NONE,
-                                        DirectX::WIC_LOADER_FORCE_RGBA32 | DirectX::WIC_LOADER_MIP_AUTOGEN,
-                                        mImage.ReleaseAndGetAddressOf());
-    // Upload the resources to the GPU.
-    auto uploadResourcesFinished = resourceUpload.End(mCommandQueue.Get());
-    // Wait for the upload thread to terminate
-    uploadResourcesFinished.wait();
-}
-
-void DirectXRenderer::CreateTexture(ID3D12GraphicsCommandList* uploadCommandList) {
-    int texWidth, texHeight, texChannels;
-    std::size_t imageSizeTotal = 0u;
-    using dataTexturetPtr = std::unique_ptr<stbi_uc, decltype(&stbi_image_free)>;
-
-    std::string path = "textures\\texture.png";
-
-    /// STBI_rgb_alpha coerces to have ALPHA chanel for consistency with alphaless images
-    stbi_uc* pixels = stbi_load(path.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-    assert(pixels);
-    dataTexturetPtr textureData(pixels, stbi_image_free);
-    imageSizeTotal += texWidth * texHeight * 4LL;
-
-    static const auto defaultHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-    const auto resourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, texWidth, texHeight, 1, 1);
-
-    mDevice->CreateCommittedResource(&defaultHeapProperties, D3D12_HEAP_FLAG_NONE, &resourceDesc, D3D12_RESOURCE_STATE_COPY_DEST,
-                                     nullptr, IID_PPV_ARGS(&mImage));
-
-    static const auto uploadHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
-    const auto uploadBufferSize = GetRequiredIntermediateSize(mImage.Get(), 0, 1);
-    const auto uploadBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize);
-
-    mDevice->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &uploadBufferDesc,
-                                     D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&mUploadImage));
-
-    D3D12_SUBRESOURCE_DATA srcData;
-    srcData.pData = textureData.get();
-    srcData.RowPitch = texWidth * 4;
-    srcData.SlicePitch = texWidth * texHeight * 4;
-
-    UpdateSubresources(uploadCommandList, mImage.Get(), mUploadImage.Get(), 0, 0, 1, &srcData);
-    const auto transition = CD3DX12_RESOURCE_BARRIER::Transition(mImage.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
-                                                                 D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-    uploadCommandList->ResourceBarrier(1, &transition);
-
-    D3D12_SHADER_RESOURCE_VIEW_DESC shaderResourceViewDesc = {};
-    shaderResourceViewDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-    shaderResourceViewDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    shaderResourceViewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
-    shaderResourceViewDesc.Texture2D.MipLevels = 1;
-    shaderResourceViewDesc.Texture2D.MostDetailedMip = 0;
-    shaderResourceViewDesc.Texture2D.ResourceMinLODClamp = 0.0f;
-
-    mDevice->CreateShaderResourceView(mImage.Get(), &shaderResourceViewDesc,
-                                      mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 }
 
 void DirectXRenderer::CreateRootSignature() {
