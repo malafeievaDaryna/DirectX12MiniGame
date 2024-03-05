@@ -1,7 +1,7 @@
 #include "MD5Loader.h"
-#include "d3dx12.h"
 #include <cassert>
 #include <fstream>
+#include "d3dx12.h"
 
 MD5Loader::MD5Loader(ID3D12Device* device, ID3D12GraphicsCommandList* uploadCommandList, const std::string& md5ModelFileName,
                      const std::string& md5AnimFileName) {
@@ -13,30 +13,29 @@ MD5Loader::MD5Loader(ID3D12Device* device, ID3D12GraphicsCommandList* uploadComm
 bool MD5Loader::LoadMD5Anim(const std::string& filename) {
     ModelAnimation tempAnim;  // Temp animation to later store in our model's animation array
 
-    std::wifstream fileIn(filename.c_str());  // Open file
+    std::ifstream fileIn(filename.c_str());  // Open file
 
-    std::wstring checkString;  // Stores the next string from our file
+    std::string checkString;  // Stores the next string from our file
 
-    if (fileIn)
-    {
+    if (fileIn) {
         while (fileIn)  // Loop until the end of the file is reached
         {
             fileIn >> checkString;  // Get next string from file
 
-            if (checkString == L"MD5Version")  // Get MD5 version (this function supports version 10)
+            if (checkString == "MD5Version")  // Get MD5 version (this function supports version 10)
             {
                 fileIn >> checkString;
-            } else if (checkString == L"commandline") {
+            } else if (checkString == "commandline") {
                 std::getline(fileIn, checkString);  // Ignore the rest of this line
-            } else if (checkString == L"numFrames") {
+            } else if (checkString == "numFrames") {
                 fileIn >> tempAnim.numFrames;  // Store number of frames in this animation
-            } else if (checkString == L"numJoints") {
+            } else if (checkString == "numJoints") {
                 fileIn >> tempAnim.numJoints;  // Store number of joints (must match .md5mesh)
-            } else if (checkString == L"frameRate") {
+            } else if (checkString == "frameRate") {
                 fileIn >> tempAnim.frameRate;  // Store animation's frame rate (frames per second)
-            } else if (checkString == L"numAnimatedComponents") {
+            } else if (checkString == "numAnimatedComponents") {
                 fileIn >> tempAnim.numAnimatedComponents;  // Number of components in each frame section
-            } else if (checkString == L"hierarchy") {
+            } else if (checkString == "hierarchy") {
                 fileIn >> checkString;  // Skip opening bracket "{"
 
                 for (int i = 0; i < tempAnim.numJoints; i++)  // Load in each joint
@@ -47,7 +46,7 @@ bool MD5Loader::LoadMD5Anim(const std::string& filename) {
                     // Sometimes the names might contain spaces. If that is the case, we need to continue
                     // to read the name until we get to the closing " (quotation marks)
                     if (tempJoint.name[tempJoint.name.size() - 1] != '"') {
-                        wchar_t checkChar;
+                        char checkChar;
                         bool jointNameFound = false;
                         while (!jointNameFound) {
                             checkChar = fileIn.get();
@@ -84,7 +83,7 @@ bool MD5Loader::LoadMD5Anim(const std::string& filename) {
 
                     std::getline(fileIn, checkString);  // Skip rest of this line
                 }
-            } else if (checkString == L"bounds")  // Load in the AABB for each animation
+            } else if (checkString == "bounds")  // Load in the AABB for each animation
             {
                 fileIn >> checkString;  // Skip opening bracket "{"
 
@@ -99,9 +98,9 @@ bool MD5Loader::LoadMD5Anim(const std::string& filename) {
 
                     tempAnim.frameBounds.push_back(tempBB);
                 }
-            } else if (checkString == L"baseframe")  // This is the default position for the animation
-            {                                        // All frames will build their skeletons off this
-                fileIn >> checkString;               // Skip opening bracket "{"
+            } else if (checkString == "baseframe")  // This is the default position for the animation
+            {                                       // All frames will build their skeletons off this
+                fileIn >> checkString;              // Skip opening bracket "{"
 
                 for (int i = 0; i < tempAnim.numJoints; i++) {
                     Joint tempBFJ;
@@ -115,7 +114,7 @@ bool MD5Loader::LoadMD5Anim(const std::string& filename) {
                     tempAnim.baseFrameJoints.push_back(tempBFJ);
                 }
             } else if (checkString ==
-                       L"frame")  // Load in each frames skeleton (the parts of each joint that changed from the base frame)
+                       "frame")  // Load in each frames skeleton (the parts of each joint that changed from the base frame)
             {
                 FrameData tempFrame;
 
@@ -234,9 +233,9 @@ bool MD5Loader::LoadMD5Anim(const std::string& filename) {
         tempAnim.currAnimTime = 0.0f;                                      // Set the current time to zero
 
         mMD5Model.animations.push_back(tempAnim);  // Push back the animation into our model object
-    } else                                        // If the file was not loaded
+    } else                                         // If the file was not loaded
     {
-        std::cout << "Couldn't open file";
+        utils::log_err("Couldn't open file");
         return false;
     }
     return true;
@@ -244,8 +243,7 @@ bool MD5Loader::LoadMD5Anim(const std::string& filename) {
 
 void MD5Loader::UpdateMD5Model(float deltaTimeMS, int animation) {
     if (mMD5Model.animations.size() <= animation) {
-        // TODO log
-        std::cout << " error ";
+        utils::log_err("wront parameters");
         return;
     }
     mMD5Model.animations[animation].currAnimTime += deltaTimeMS / 1000.0f;  // Update the current animation time
@@ -367,9 +365,9 @@ void MD5Loader::UpdateMD5Model(float deltaTimeMS, int animation) {
 
 bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* uploadCommandList, const std::string& filename) {
     assert(device && uploadCommandList);
-    std::wifstream fileIn(filename.c_str());  // Open file
+    std::ifstream fileIn(filename.c_str());  // Open file
 
-    std::wstring checkString;  // Stores the next string from our file
+    std::string checkString;  // Stores the next string from our file
 
     if (fileIn)  // Check if the file was opened
     {
@@ -377,15 +375,15 @@ bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* up
         {
             fileIn >> checkString;  // Get next string from file
 
-            if (checkString == L"MD5Version")  // Get MD5 version (this function supports version 10)
+            if (checkString == "MD5Version")  // Get MD5 version (this function supports version 10)
             {
-            } else if (checkString == L"commandline") {
+            } else if (checkString == "commandline") {
                 std::getline(fileIn, checkString);  // Ignore the rest of this line
-            } else if (checkString == L"numJoints") {
+            } else if (checkString == "numJoints") {
                 fileIn >> mMD5Model.numJoints;  // Store number of joints
-            } else if (checkString == L"numMeshes") {
+            } else if (checkString == "numMeshes") {
                 fileIn >> mMD5Model.numSubsets;  // Store number of meshes or subsets which we will call them
-            } else if (checkString == L"joints") {
+            } else if (checkString == "joints") {
                 Joint tempJoint;
 
                 fileIn >> checkString;  // Skip the "{"
@@ -395,7 +393,7 @@ bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* up
                     // Sometimes the names might contain spaces. If that is the case, we need to continue
                     // to read the name until we get to the closing " (quotation marks)
                     if (tempJoint.name[tempJoint.name.size() - 1] != '"') {
-                        wchar_t checkChar;
+                        char checkChar;
                         bool jointNameFound = false;
                         while (!jointNameFound) {
                             checkChar = fileIn.get();
@@ -442,23 +440,23 @@ bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* up
                 }
 
                 fileIn >> checkString;  // Skip the "}"
-            } else if (checkString == L"mesh") {
+            } else if (checkString == "mesh") {
                 ModelSubset subset;
                 int numVerts, numTris, numWeights;
 
                 fileIn >> checkString;  // Skip the "{"
 
                 fileIn >> checkString;
-                while (checkString != L"}")  // Read until '}'
+                while (checkString != "}")  // Read until '}'
                 {
-                    if (checkString == L"shader")  // Load the texture
+                    if (checkString == "shader")  // Load the texture
                     {
-                        std::wstring fileNamePath;
+                        std::string fileNamePath;
                         fileIn >> fileNamePath;  // Get texture's filename
 
                         // Take spaces into account if filename or material name has a space in it
                         if (fileNamePath[fileNamePath.size() - 1] != '"') {
-                            wchar_t checkChar;
+                            char checkChar;
                             bool fileNameFound = false;
                             while (!fileNameFound) {
                                 checkChar = fileIn.get();
@@ -474,10 +472,10 @@ bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* up
                         fileNamePath.erase(0, 1);
                         fileNamePath.erase(fileNamePath.size() - 1, 1);
 
-                        subset.texture = utils::CreateTexture(device, uploadCommandList, std::string(fileNamePath.begin(), fileNamePath.end()));
+                        subset.texture = utils::CreateTexture(device, uploadCommandList, fileNamePath);
 
                         std::getline(fileIn, checkString);  // Skip rest of this line
-                    } else if (checkString == L"numverts") {
+                    } else if (checkString == "numverts") {
                         fileIn >> numVerts;  // Store number of vertices
 
                         std::getline(fileIn, checkString);  // Skip rest of this line
@@ -501,7 +499,7 @@ bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* up
 
                             subset.vertices.push_back(tempVert);  // Push back this vertex into subsets vertex vector
                         }
-                    } else if (checkString == L"numtris") {
+                    } else if (checkString == "numtris") {
                         fileIn >> numTris;
                         subset.numTriangles = numTris;
 
@@ -521,7 +519,7 @@ bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* up
 
                             std::getline(fileIn, checkString);  // Skip rest of this line
                         }
-                    } else if (checkString == L"numweights") {
+                    } else if (checkString == "numweights") {
                         fileIn >> numWeights;
 
                         std::getline(fileIn, checkString);  // Skip rest of this line
@@ -708,10 +706,10 @@ bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* up
                 const auto uploadHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
                 const auto uploadBufferVertDesc = CD3DX12_RESOURCE_DESC::Buffer(indicesSize);
                 device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &uploadBufferVertDesc,
-                                                 D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&subset.indicesBuffer));
+                                                D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&subset.indicesBuffer));
                 const auto uploadBufferIndDesc = CD3DX12_RESOURCE_DESC::Buffer(verticesSize);
                 device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &uploadBufferIndDesc,
-                                                 D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&subset.verticesBuffer));
+                                                D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&subset.verticesBuffer));
 
                 // Create buffer views
                 subset.verticesBufferView.BufferLocation = subset.verticesBuffer->GetGPUVirtualAddress();
@@ -736,10 +734,7 @@ bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* up
             }
         }
     } else {
-        // TODO log here
-
-        std::cout << "ERROR";
-
+        utils::log_err("Couldn't load animation file");
         return false;
     }
 

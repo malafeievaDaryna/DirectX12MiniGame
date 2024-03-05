@@ -6,8 +6,8 @@
  * (https://github.com/Microsoft/DirectX-Graphics-Samples/tree/master/Libraries/D3DX12)
  */
 #include "Shaders.h"
-#include "d3dx12.h"
 #include "Utils.h"
+#include "d3dx12.h"
 
 #include <d3dcompiler.h>
 #include <dxgi1_5.h>
@@ -454,13 +454,11 @@ void DirectXRenderer::CreatePipelineStateObject() {
 
     ComPtr<ID3DBlob> vertexShader;
     D3DCompile(shaders::vs_shader, sizeof(shaders::vs_shader), "", nullptr, nullptr, "VS_main", "vs_5_1", compileFlags, 0,
-               &vertexShader,
-               nullptr);
+               &vertexShader, nullptr);
 
     ComPtr<ID3DBlob> pixelShader;
     D3DCompile(shaders::fs_shader, sizeof(shaders::fs_shader), "", nullptr, nullptr, "PS_main", "ps_5_1", compileFlags, 0,
-               &pixelShader,
-               nullptr);
+               &pixelShader, nullptr);
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
     psoDesc.VS.BytecodeLength = vertexShader->GetBufferSize();

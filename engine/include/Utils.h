@@ -34,5 +34,5 @@ void log_debug(Args... args) {
 #endif
 
 Texture2DResource CreateTexture(ID3D12Device* device, ID3D12GraphicsCommandList* uploadCommandList,
-                                 const std::string& textureFileName);
+                                const std::string& textureFileName);
 }  // namespace utils

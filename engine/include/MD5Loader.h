@@ -1,8 +1,8 @@
 #pragma once
 
 #include <d3d12.h>
-#include <wrl.h>
 #include <directxmath.h>
+#include <wrl.h>
 #include <memory>
 #include <string>
 #include <vector>
@@ -10,8 +10,7 @@
 
 using namespace DirectX;
 class MD5Loader {
-    struct Vertex
-    {
+    struct Vertex {
         Vertex() {
         }
         Vertex(float x, float y, float z, float u, float v, float nx, float ny, float nz, float tx, float ty, float tz)
@@ -30,7 +29,7 @@ class MD5Loader {
     };
 
     struct Joint {
-        std::wstring name;
+        std::string name;
         int parentID;
 
         XMFLOAT3 pos;
@@ -48,7 +47,7 @@ class MD5Loader {
     };
 
     struct AnimJointInfo {
-        std::wstring name;
+        std::string name;
         int parentID;
 
         int flags;
@@ -106,8 +105,7 @@ class MD5Loader {
     };
 
 public:
-    MD5Loader(ID3D12Device* device,
-              ID3D12GraphicsCommandList* uploadCommandList, const std::string& md5ModelFileName,
+    MD5Loader(ID3D12Device* device, ID3D12GraphicsCommandList* uploadCommandList, const std::string& md5ModelFileName,
               const std::string& md5AnimFileName);
     void UpdateMD5Model(float deltaTimeMS, int animation = 0u);
     void Draw(ID3D12GraphicsCommandList* commandList);
