@@ -8,13 +8,13 @@
 #include "Shaders.h"
 #include "d3dx12.h"
 
+#include <WICTextureLoader.h>
 #include <d3dcompiler.h>
 #include <dxgi1_5.h>
+#include <ResourceUploadBatch.h >
 #include <algorithm>
 #include <cassert>
 #include <iostream>
-#include <WICTextureLoader.h>
-#include <ResourceUploadBatch.h >
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
@@ -25,6 +25,7 @@ void log_info(Args... args) {
 template <typename... Args>
 void log_err(Args... args) {
     ((std::cerr << " " << args), ...) << std::endl;
+    std::exit(-1);
 }
 #ifdef NDEBUG
 #define log_debug(...) ((void)0)
@@ -111,6 +112,10 @@ DirectXRenderer::~DirectXRenderer() {
 }
 
 void DirectXRenderer::Render() {
+    static auto startTime = std::chrono::high_resolution_clock::now();
+    static auto endTime = std::chrono::high_resolution_clock::now();
+    static float deltaTimeMS = 0.0f;
+
     // waiting for completion of frame processing on gpu
     WaitForFence(mFrameFences[m_currentFrame].Get(), mFenceValues[m_currentFrame], mFrameFenceEvents[m_currentFrame]);
 
@@ -119,12 +124,14 @@ void DirectXRenderer::Render() {
     auto commandList = mCommandLists[m_currentFrame].Get();
     commandList->Reset(mCommandAllocators[m_currentFrame].Get(), nullptr);
 
+    // prepare RenderTargets\Depth handlers
     D3D12_CPU_DESCRIPTOR_HANDLE renderTargetHandle;
     CD3DX12_CPU_DESCRIPTOR_HANDLE::InitOffsetted(renderTargetHandle,
                                                  mRenderTargetDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
                                                  m_currentFrame, mRenderTargetViewDescriptorSize);
+    CD3DX12_CPU_DESCRIPTOR_HANDLE dsvHandle(mDSDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 
-    commandList->OMSetRenderTargets(1, &renderTargetHandle, true, nullptr);
+    commandList->OMSetRenderTargets(1, &renderTargetHandle, true, &dsvHandle);
     commandList->RSSetViewports(1, &mViewport);
     commandList->RSSetScissorRects(1, &mRectScissor);
 
@@ -139,13 +146,13 @@ void DirectXRenderer::Render() {
     commandList->ResourceBarrier(1, &barrierBefore);
 
     UpdateConstantBuffer();
-    static float delta = 0.0f; // TODO
-    delta += 0.00001f;
-    md5Loader->UpdateMD5Model(delta, 0);
+    md5Loader->UpdateMD5Model(deltaTimeMS, 0);
 
     static const float clearColor[] = {1.0f, 1.0f, 1.0f, 1.0f};
 
     commandList->ClearRenderTargetView(renderTargetHandle, clearColor, 0, nullptr);
+    commandList->ClearDepthStencilView(mDSDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0,
+                                       0, nullptr);
 
     commandList->SetPipelineState(mPso.Get());
     commandList->SetGraphicsRootSignature(mRootSignature.Get());
@@ -189,6 +196,10 @@ void DirectXRenderer::Render() {
 
     m_currentFrame = (m_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
     assert(m_currentFrame < MAX_FRAMES_IN_FLIGHT);
+
+    endTime = std::chrono::high_resolution_clock::now();
+    deltaTimeMS = std::chrono::duration<float, std::chrono::milliseconds::period>(endTime - startTime).count();
+    startTime = endTime;
 }
 
 bool DirectXRenderer::Run() {
@@ -240,7 +251,9 @@ void DirectXRenderer::SetupRenderTargets() {
     heapDesc.NumDescriptors = MAX_FRAMES_IN_FLIGHT;
     heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
     heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    mDevice->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&mRenderTargetDescriptorHeap));
+    if (FAILED(mDevice->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&mRenderTargetDescriptorHeap)))) {
+        log_err("Couldn't allocate gpu heap memory");
+    }
 
     CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle{mRenderTargetDescriptorHeap->GetCPUDescriptorHandleForHeapStart()};
 
@@ -255,6 +268,35 @@ void DirectXRenderer::SetupRenderTargets() {
 
         rtvHandle.Offset(mRenderTargetViewDescriptorSize);
     }
+
+    // create a depth stencil descriptor heap
+    D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc = {};
+    dsvHeapDesc.NumDescriptors = 1;
+    dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+    dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    if (FAILED(mDevice->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&mDSDescriptorHeap)))) {
+        log_err("Couldn't allocate gpu heap memory");
+    }
+
+    D3D12_DEPTH_STENCIL_VIEW_DESC depthStencilDesc = {};
+    depthStencilDesc.Format = DXGI_FORMAT_D32_FLOAT;
+    depthStencilDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+    depthStencilDesc.Flags = D3D12_DSV_FLAG_NONE;
+
+    D3D12_CLEAR_VALUE depthOptimizedClearValue = {};
+    depthOptimizedClearValue.Format = DEPTH_FORMAT;
+    depthOptimizedClearValue.DepthStencil.Depth = 1.0f;
+    depthOptimizedClearValue.DepthStencil.Stencil = 0;
+
+    mDevice->CreateCommittedResource(&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT), D3D12_HEAP_FLAG_NONE,
+                                     &CD3DX12_RESOURCE_DESC::Tex2D(DEPTH_FORMAT, mWindow->width(), mWindow->height(), 1, 0, 1, 0,
+                                                                   D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL),
+                                     D3D12_RESOURCE_STATE_DEPTH_WRITE, &depthOptimizedClearValue,
+                                     IID_PPV_ARGS(&mDepthStencilBuffer));
+    mDSDescriptorHeap->SetName(L"Depth/Stencil Resource Heap");
+
+    mDevice->CreateDepthStencilView(mDepthStencilBuffer.Get(), &depthStencilDesc,
+                                    mDSDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 }
 
 /**
@@ -338,7 +380,7 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     CreatePipelineStateObject();
     CreateConstantBuffer();
     CreateTexture(uploadCommandList.Get());
-    //CreateMeshBuffers(uploadCommandList.Get());
+    // CreateMeshBuffers(uploadCommandList.Get());
 
     md5Loader = std::make_unique<MD5Loader>(mDevice, "models/pinky.md5mesh", "models/idle1.md5anim");
 
@@ -461,11 +503,11 @@ void DirectXRenderer::CreatePipelineStateObject() {
     psoDesc.pRootSignature = mRootSignature.Get();
     psoDesc.NumRenderTargets = 1;
     psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
-    psoDesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
+    psoDesc.DSVFormat = DEPTH_FORMAT;
     psoDesc.InputLayout.NumElements = std::extent<decltype(layout)>::value;
     psoDesc.InputLayout.pInputElementDescs = layout;
     psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-    //psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE; // both faces drawn
+    // psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE; // both faces drawn
     psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
     // Simple alpha blending
     psoDesc.BlendState.RenderTarget[0].BlendEnable = true;
@@ -481,6 +523,8 @@ void DirectXRenderer::CreatePipelineStateObject() {
     psoDesc.DepthStencilState.StencilEnable = false;
     psoDesc.SampleMask = 0xFFFFFFFF;
     psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    // let's create default depth testing: DepthEnable = TRUE; DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+    psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
 
     mDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPso));
 }

@@ -107,7 +107,7 @@ class MD5Loader {
 public:
     MD5Loader(Microsoft::WRL::ComPtr<ID3D12Device> device, const std::string& md5ModelFileName,
               const std::string& md5AnimFileName);
-    void UpdateMD5Model(float deltaTime, int animation = 0u);
+    void UpdateMD5Model(float deltaTimeMS, int animation = 0u);
     void Draw(ID3D12GraphicsCommandList* commandList);
 
 private:

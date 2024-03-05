@@ -17,6 +17,7 @@ class Window;
 
 class DirectXRenderer {
     static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 3;
+    static constexpr DXGI_FORMAT DEPTH_FORMAT = DXGI_FORMAT_D32_FLOAT;
     struct ConstantBuffer {
         DirectX::XMMATRIX mvp;
     };
@@ -55,6 +56,7 @@ private:
     Microsoft::WRL::ComPtr<IDXGISwapChain> mSwapChain{};
     Microsoft::WRL::ComPtr<ID3D12Device> mDevice{};
     Microsoft::WRL::ComPtr<ID3D12Resource> mRenderTargets[MAX_FRAMES_IN_FLIGHT]{};
+    Microsoft::WRL::ComPtr<ID3D12Resource> mDepthStencilBuffer;
     Microsoft::WRL::ComPtr<ID3D12CommandQueue> mCommandQueue{};
 
     HANDLE mFrameFenceEvents[MAX_FRAMES_IN_FLIGHT]{nullptr};
@@ -63,6 +65,7 @@ private:
     UINT64 mFenceValues[MAX_FRAMES_IN_FLIGHT]{};
     UINT32 m_currentFrame{0u};
 
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mDSDescriptorHeap; // the heap for Depth Stencil buffer descriptor
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mRenderTargetDescriptorHeap{};
     UINT64 mRenderTargetViewDescriptorSize{0u};
