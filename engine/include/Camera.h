@@ -31,15 +31,14 @@ public:
 
     DirectX::XMFLOAT4 cameraPosition() {
         DirectX::XMFLOAT4 pos;
-        DirectX::XMStoreFloat4(&pos, DirectX::XMVectorAdd(mTarget, mFromTargetToEye));
+        DirectX::XMStoreFloat4(&pos, mEye);
         return pos;
     }
 
     void update(EDirection dir);
 
 private:
-    DirectX::XMVECTOR mTarget;
-    DirectX::XMVECTOR mFromTargetToEye;
+    DirectX::XMVECTOR mEye;
+    DirectX::XMVECTOR mFromEyeToTarget;
     ViewProj mViewProj{};
-    DirectX::XMVECTOR mCameraRotationQuat{};
 };
