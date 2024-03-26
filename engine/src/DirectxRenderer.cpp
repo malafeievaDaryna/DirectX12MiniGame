@@ -196,15 +196,19 @@ bool DirectXRenderer::Run() {
     }
     if (kb.W || kb.Up) {
         log_debug("Up");
+        mCamera->update(Camera::EDirection::Forward);
     }
     if (kb.A || kb.Left) {
         log_debug("Left");
+        mCamera->update(Camera::EDirection::Left);
     }
     if (kb.S || kb.Down) {
         log_debug("Down");
+        mCamera->update(Camera::EDirection::Back);
     }
     if (kb.D || kb.Right) {
         log_debug("Right");
+        mCamera->update(Camera::EDirection::Right);
     }
 
     log_debug("x", mMouse->GetState().x, "y", mMouse->GetState().y);
@@ -309,13 +313,13 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     mMouse = std::make_unique<DirectX::Mouse>();
     mMouse->SetWindow(mWindow->hwnd());
 
-    const DirectX::XMVECTOR eye = DirectX::XMVectorSet(0, 100, -500, 1);
-    const DirectX::XMVECTOR target = DirectX::XMVectorSet(0, 0, 0, 1);
-    const DirectX::XMVECTOR up = DirectX::XMVectorSet(0, 1, 0, 0);
-    mView = DirectX::XMMatrixLookAtLH(eye, target, up);
-
+    Camera::Perstective perspective;
     float aspectRatio = static_cast<float>(mWindow->width()) / mWindow->height();
-    mProj = DirectX::XMMatrixPerspectiveFovLH(DirectX::XMConvertToRadians(45.0f), aspectRatio, 0.01f, 1000.0f);
+    perspective.fovy = 45.0f;
+    perspective.aspect = aspectRatio;
+    perspective._near = 0.01f;
+    perspective._far = 1000.0f;
+    mCamera = std::make_unique<Camera>(perspective, DirectX::XMFLOAT4{0, 100, -500, 1}, DirectX::XMFLOAT4{0, 0, 0, 0});
 
     CreateDeviceAndSwapChain();
 
@@ -544,8 +548,9 @@ void DirectXRenderer::UpdateConstantBuffer() {
     const DirectX::XMVECTOR rotationAxis = DirectX::XMVectorSet(0, 1, 0, 0);
     mModel = DirectX::XMMatrixRotationAxis(rotationAxis, DirectX::XMConvertToRadians(angle));
 
-    DirectX::XMMATRIX modelView = DirectX::XMMatrixMultiply(mModel, mView);
-    mConstantBufferData.mvp = DirectX::XMMatrixMultiply(modelView, mProj);
+    const auto& viewProj = mCamera->viewProjMat();
+    DirectX::XMMATRIX modelView = DirectX::XMMatrixMultiply(mModel, viewProj.view);
+    mConstantBufferData.mvp = DirectX::XMMatrixMultiply(modelView, viewProj.proj);
 
     void* data;
     mConstantBuffers[m_currentFrame]->Map(0, nullptr, &data);

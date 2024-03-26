@@ -12,6 +12,7 @@
 #include <Mouse.h>
 #include <directxmath.h>
 #include "MD5Loader.h"
+#include "Camera.h"
 
 class Window;
 
@@ -46,8 +47,7 @@ private:
     std::unique_ptr<DirectX::Keyboard> mKeyboard{nullptr};
     std::unique_ptr<DirectX::Mouse> mMouse{nullptr};
     DirectX::XMMATRIX mModel{};
-    DirectX::XMMATRIX mView{};
-    DirectX::XMMATRIX mProj{};
+    std::unique_ptr<Camera> mCamera{nullptr};
 
     D3D12_VIEWPORT mViewport{};
     D3D12_RECT mRectScissor{};
