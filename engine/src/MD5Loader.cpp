@@ -243,12 +243,12 @@ bool MD5Loader::LoadMD5Anim(const std::string& filename) {
 
 void MD5Loader::UpdateMD5Model(float deltaTimeMS, int animation) {
     if (mMD5Model.animations.size() <= animation) {
-        utils::log_err("wront parameters");
+        utils::log_err("wrong parameters");
         return;
     }
     mMD5Model.animations[animation].currAnimTime += deltaTimeMS / 1000.0f;  // Update the current animation time
 
-    if (mMD5Model.animations[animation].currAnimTime > mMD5Model.animations[animation].totalAnimTime)
+    if (mMD5Model.animations[animation].currAnimTime >= mMD5Model.animations[animation].totalAnimTime)
         mMD5Model.animations[animation].currAnimTime = 0.0f;
 
     // Which frame are we on

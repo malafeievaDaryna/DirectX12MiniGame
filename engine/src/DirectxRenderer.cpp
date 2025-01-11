@@ -191,6 +191,21 @@ bool DirectXRenderer::Run() {
     }
 
     auto kb = mKeyboard->GetState();
+    static int lastMouseX = mMouse->GetState().x;
+    static int lastMouseY = mMouse->GetState().y;
+
+    int deltaMouseX = mMouse->GetState().x - lastMouseX;
+    lastMouseX = mMouse->GetState().x;
+    lastMouseY = mMouse->GetState().y;
+    log_debug("x", mMouse->GetState().x, "deltaMouseX", deltaMouseX);
+    if (deltaMouseX < 0) {
+        log_debug("Left");
+        mCamera->update(Camera::EDirection::Left);
+    } else if (deltaMouseX > 0) {
+        log_debug("Right");
+        mCamera->update(Camera::EDirection::Right);
+    }
+
     if (kb.Escape) {
         return false;
     }
@@ -200,7 +215,6 @@ bool DirectXRenderer::Run() {
     }
     if (kb.A || kb.Left) {
         log_debug("Left");
-        mCamera->update(Camera::EDirection::Left);
     }
     if (kb.S || kb.Down) {
         log_debug("Down");
@@ -208,10 +222,7 @@ bool DirectXRenderer::Run() {
     }
     if (kb.D || kb.Right) {
         log_debug("Right");
-        mCamera->update(Camera::EDirection::Right);
     }
-
-    log_debug("x", mMouse->GetState().x, "y", mMouse->GetState().y);
 
     Render();
 
@@ -348,7 +359,7 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     CreateConstantBuffer();
 
     md5Loader =
-        std::make_unique<MD5Loader>(mDevice.Get(), uploadCommandList.Get(), "models/pinky.md5mesh", "models/idle1.md5anim");
+        std::make_unique<MD5Loader>(mDevice.Get(), uploadCommandList.Get(), "models/pistol.md5mesh", "models/pistol_fire.md5anim");
 
     uploadCommandList->Close();
 
@@ -543,13 +554,20 @@ void DirectXRenderer::CreateConstantBuffer() {
 }
 
 void DirectXRenderer::UpdateConstantBuffer() {
-    static float angle = 0.0f;
-    angle += 0.1f;
-    const DirectX::XMVECTOR rotationAxis = DirectX::XMVectorSet(0, 1, 0, 0);
-    mModel = DirectX::XMMatrixRotationAxis(rotationAxis, DirectX::XMConvertToRadians(angle));
+    const static float angle = -90.0f;
+    const static DirectX::XMVECTOR rotationAxis = DirectX::XMVectorSet(0, 1, 0, 0);
+    const static auto rotation = XMMatrixRotationAxis(rotationAxis, DirectX::XMConvertToRadians(angle));
+
+    const auto& targetPos = mCamera->targetPosition();
+    // some offset from camera to our hand&pistol
+    const static float offsetFromCamera = 25.0f;
+    const auto translation = DirectX::XMMatrixTranslation(offsetFromCamera * targetPos.x, offsetFromCamera * targetPos.y,
+                                                          offsetFromCamera * targetPos.z);
+    mModel = DirectX::XMMatrixMultiply(rotation, translation);
 
     const auto& viewProj = mCamera->viewProjMat();
-    DirectX::XMMATRIX modelView = DirectX::XMMatrixMultiply(mModel, viewProj.view);
+    // we ignore view matrix because our hand&pistol must follow camera rotation
+    DirectX::XMMATRIX modelView = DirectX::XMMatrixMultiply(mModel, DirectX::XMMatrixIdentity());
     mConstantBufferData.mvp = DirectX::XMMatrixMultiply(modelView, viewProj.proj);
 
     void* data;

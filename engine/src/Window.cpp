@@ -55,6 +55,8 @@ Window::Window(const std::string& title, const int width, const int height)
     rect.bottom = mHeight + rect.top;
     AdjustWindowRectEx(&rect, style, 0, 0);  // it's required because window frame takes several pixels
 
+    SetProcessDPIAware(); // ignore dpi when setting cursor
+
     {
         WNDCLASSEX wndcls = {};
 
@@ -74,6 +76,8 @@ Window::Window(const std::string& title, const int width, const int height)
                            rect.right - rect.left, rect.bottom - rect.top, NULL, NULL, m_hinstance, NULL);
 
     ShowWindow(mHwnd, SW_SHOW);
+    
+    SetCursorPos(mWidth / 2, mHeight / 2);
 }
 
 Window::~Window() {

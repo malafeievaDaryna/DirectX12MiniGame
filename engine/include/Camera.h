@@ -35,6 +35,12 @@ public:
         return pos;
     }
 
+    DirectX::XMFLOAT4 targetPosition() {
+        DirectX::XMFLOAT4 pos;
+        DirectX::XMStoreFloat4(&pos, mFromEyeToTarget);
+        return pos;
+    }
+
     void update(EDirection dir);
 
 private:
