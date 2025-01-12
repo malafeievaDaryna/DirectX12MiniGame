@@ -43,8 +43,9 @@ RenderEnvironment CreateDeviceAndSwapChainHelper(_In_opt_ IDXGIAdapter* adapter,
         throw std::runtime_error("DXGI factory creation failed.");
     }
 
-    SIZE_T maxDedicatedVideoMemory = 0;
-    for (UINT i = 0; dxgiFactory->EnumAdapters1(i, &dxgiAdapter) != DXGI_ERROR_NOT_FOUND; ++i) {
+    SIZE_T maxDedicatedVideoMemory = 0u;
+    UINT dedicatedIndex = 0u;
+    for (UINT i = 0u; dxgiFactory->EnumAdapters1(i, &dxgiAdapter) != DXGI_ERROR_NOT_FOUND; ++i) {
         DXGI_ADAPTER_DESC1 dxgiAdapterDesc;
         dxgiAdapter->GetDesc1(&dxgiAdapterDesc);
 
@@ -53,10 +54,13 @@ RenderEnvironment CreateDeviceAndSwapChainHelper(_In_opt_ IDXGIAdapter* adapter,
             SUCCEEDED(D3D12CreateDevice(dxgiAdapter.Get(), minimumFeatureLevel, __uuidof(ID3D12Device), nullptr)) &&
             dxgiAdapterDesc.DedicatedVideoMemory > maxDedicatedVideoMemory) {
             maxDedicatedVideoMemory = dxgiAdapterDesc.DedicatedVideoMemory;
+            dedicatedIndex = i;
         }
     }
 
-    hr = D3D12CreateDevice(adapter, minimumFeatureLevel, IID_PPV_ARGS(&result.device));
+    dxgiFactory->EnumAdapters1(dedicatedIndex, &dxgiAdapter);
+
+    hr = D3D12CreateDevice(dxgiAdapter.Get(), minimumFeatureLevel, IID_PPV_ARGS(&result.device));
 
     if (FAILED(hr)) {
         throw std::runtime_error("Device creation failed.");
@@ -126,7 +130,8 @@ void DirectXRenderer::Render() {
     commandList->ResourceBarrier(1, &barrierBefore);
 
     UpdateConstantBuffer();
-    md5Loader->UpdateMD5Model(deltaTimeMS, 0);
+    md5PistolModel->UpdateMD5Model(deltaTimeMS, 0);
+    md5MonsterModel->UpdateMD5Model(deltaTimeMS, 0);
 
     static const float clearColor[] = {1.0f, 1.0f, 1.0f, 1.0f};
 
@@ -138,12 +143,15 @@ void DirectXRenderer::Render() {
     commandList->SetGraphicsRootSignature(mRootSignature.Get());
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     // Set slot 1 of our root signature to the constant buffer view
-    commandList->SetGraphicsRootConstantBufferView(1, mConstantBuffers[m_currentFrame]->GetGPUVirtualAddress());
+    commandList->SetGraphicsRootConstantBufferView(1, mPistolConstantBuffers[m_currentFrame]->GetGPUVirtualAddress());
+    md5PistolModel->Draw(commandList);
+
+    commandList->SetGraphicsRootConstantBufferView(1, mMonsterConstantBuffers[m_currentFrame]->GetGPUVirtualAddress());
+    md5MonsterModel->Draw(commandList);
 
     /*commandList->IASetVertexBuffers(0, 1, &mVertexBufferView);
     commandList->IASetIndexBuffer(&mIndexBufferView);
     commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);*/
-    md5Loader->Draw(commandList);
 
     D3D12_RESOURCE_BARRIER barrierAfter;
     barrierAfter.Transition.pResource = mRenderTargets[m_currentFrame].Get();
@@ -197,12 +205,17 @@ bool DirectXRenderer::Run() {
     int deltaMouseX = mMouse->GetState().x - lastMouseX;
     lastMouseX = mMouse->GetState().x;
     lastMouseY = mMouse->GetState().y;
-    log_debug("x", mMouse->GetState().x, "deltaMouseX", deltaMouseX);
+    // log_debug("x", mMouse->GetState().x, "deltaMouseX", deltaMouseX);
+
+    POINT mousePos;
+    GetCursorPos(&mousePos);
+    log_debug("mousePos x", mousePos.x, " mousePos y ", mousePos.y);
+
     if (deltaMouseX < 0) {
-        log_debug("Left");
+        // log_debug("Left");
         mCamera->update(Camera::EDirection::Left);
     } else if (deltaMouseX > 0) {
-        log_debug("Right");
+        // log_debug("Right");
         mCamera->update(Camera::EDirection::Right);
     }
 
@@ -358,8 +371,10 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     CreatePipelineStateObject();
     CreateConstantBuffer();
 
-    md5Loader =
-        std::make_unique<MD5Loader>(mDevice.Get(), uploadCommandList.Get(), "models/pistol.md5mesh", "models/pistol_fire.md5anim");
+    md5PistolModel = std::make_unique<MD5Loader>(mDevice.Get(), uploadCommandList.Get(), "models/pistol.md5mesh",
+                                                 "models/pistol_fire.md5anim");
+    md5MonsterModel =
+        std::make_unique<MD5Loader>(mDevice.Get(), uploadCommandList.Get(), "models/pinky.md5mesh", "models/pinky_idle.md5anim");
 
     uploadCommandList->Close();
 
@@ -544,36 +559,61 @@ void DirectXRenderer::CreateConstantBuffer() {
         static const auto constantBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(sizeof(ConstantBuffer));
 
         mDevice->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &constantBufferDesc,
-                                         D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&mConstantBuffers[i]));
+                                         D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&mPistolConstantBuffers[i]));
 
+        mDevice->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &constantBufferDesc,
+                                         D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&mMonsterConstantBuffers[i]));
+
+        // we set identity matrix as mvp for models
         void* p;
-        mConstantBuffers[i]->Map(0, nullptr, &p);
+        mPistolConstantBuffers[i]->Map(0, nullptr, &p);
         memcpy(p, &mConstantBufferData, sizeof(mConstantBufferData));
-        mConstantBuffers[i]->Unmap(0, nullptr);
+        mPistolConstantBuffers[i]->Unmap(0, nullptr);
+
+        mMonsterConstantBuffers[i]->Map(0, nullptr, &p);
+        memcpy(p, &mConstantBufferData, sizeof(mConstantBufferData));
+        mMonsterConstantBuffers[i]->Unmap(0, nullptr);
     }
 }
 
 void DirectXRenderer::UpdateConstantBuffer() {
-    const static float angle = -90.0f;
-    const static DirectX::XMVECTOR rotationAxis = DirectX::XMVectorSet(0, 1, 0, 0);
-    const static auto rotation = XMMatrixRotationAxis(rotationAxis, DirectX::XMConvertToRadians(angle));
+    // pistol mvp matrix
+    {
+        const static float angle = -90.0f;
+        const static DirectX::XMVECTOR rotationAxis = DirectX::XMVectorSet(0, 1, 0, 0);
+        const static auto rotation = XMMatrixRotationAxis(rotationAxis, DirectX::XMConvertToRadians(angle));
 
-    const auto& targetPos = mCamera->targetPosition();
-    // some offset from camera to our hand&pistol
-    const static float offsetFromCamera = 25.0f;
-    const auto translation = DirectX::XMMatrixTranslation(offsetFromCamera * targetPos.x, offsetFromCamera * targetPos.y,
-                                                          offsetFromCamera * targetPos.z);
-    mModel = DirectX::XMMatrixMultiply(rotation, translation);
+        // some offset from camera to our hand&pistol
+        static constexpr float offsetFromCamera = 10.0f;
+        const auto translation = DirectX::XMMatrixTranslation(0, 0, offsetFromCamera);
+        DirectX::XMMATRIX model = DirectX::XMMatrixMultiply(rotation, translation);
 
-    const auto& viewProj = mCamera->viewProjMat();
-    // we ignore view matrix because our hand&pistol must follow camera rotation
-    DirectX::XMMATRIX modelView = DirectX::XMMatrixMultiply(mModel, DirectX::XMMatrixIdentity());
-    mConstantBufferData.mvp = DirectX::XMMatrixMultiply(modelView, viewProj.proj);
+        const auto& viewProj = mCamera->viewProjMat();
+        // we ignore view matrix because our hand&pistol must follow camera rotation
+        DirectX::XMMATRIX modelView = model;
+        mConstantBufferData.mvp = DirectX::XMMatrixMultiply(modelView, viewProj.proj);
 
-    void* data;
-    mConstantBuffers[m_currentFrame]->Map(0, nullptr, &data);
-    memcpy(data, &mConstantBufferData, sizeof(mConstantBufferData));
-    mConstantBuffers[m_currentFrame]->Unmap(0, nullptr);
+        void* data;
+        mPistolConstantBuffers[m_currentFrame]->Map(0, nullptr, &data);
+        memcpy(data, &mConstantBufferData, sizeof(mConstantBufferData));
+        mPistolConstantBuffers[m_currentFrame]->Unmap(0, nullptr);
+    }
+
+    // monster mvp matrix
+    {
+        // TODO currently the monster is not moving
+        DirectX::XMMATRIX model = DirectX::XMMatrixIdentity();
+
+        const auto& viewProj = mCamera->viewProjMat();
+        // we ignore view matrix because our hand&pistol must follow camera rotation
+        DirectX::XMMATRIX modelView = DirectX::XMMatrixMultiply(model, viewProj.view);
+        mConstantBufferData.mvp = DirectX::XMMatrixMultiply(modelView, viewProj.proj);
+
+        void* data;
+        mMonsterConstantBuffers[m_currentFrame]->Map(0, nullptr, &data);
+        memcpy(data, &mConstantBufferData, sizeof(mConstantBufferData));
+        mMonsterConstantBuffers[m_currentFrame]->Unmap(0, nullptr);
+    }
 }
 
 void DirectXRenderer::Shutdown() {

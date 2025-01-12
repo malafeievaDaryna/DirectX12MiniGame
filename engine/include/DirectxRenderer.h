@@ -2,17 +2,17 @@
 
 #define NOMINMAX
 
+#include <Keyboard.h>
+#include <Mouse.h>
 #include <d3d12.h>
+#include <directxmath.h>
 #include <dxgi.h>
 #include <wrl.h>  // ComPtr template (kinda smart pointers for COM objects)
 #include <memory>
 #include <string>
 #include <vector>
-#include <Keyboard.h>
-#include <Mouse.h>
-#include <directxmath.h>
-#include "MD5Loader.h"
 #include "Camera.h"
+#include "MD5Loader.h"
 
 class Window;
 
@@ -22,6 +22,7 @@ class DirectXRenderer {
     struct ConstantBuffer {
         DirectX::XMMATRIX mvp;
     };
+
 public:
     DirectXRenderer();
     ~DirectXRenderer();
@@ -46,7 +47,6 @@ private:
     std::unique_ptr<Window, void (*)(Window*)> mWindow;
     std::unique_ptr<DirectX::Keyboard> mKeyboard{nullptr};
     std::unique_ptr<DirectX::Mouse> mMouse{nullptr};
-    DirectX::XMMATRIX mModel{};
     std::unique_ptr<Camera> mCamera{nullptr};
 
     D3D12_VIEWPORT mViewport{};
@@ -63,7 +63,7 @@ private:
     UINT64 mFenceValues[MAX_FRAMES_IN_FLIGHT]{};
     UINT32 m_currentFrame{0u};
 
-    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mDSDescriptorHeap; // the heap for Depth Stencil buffer descriptor
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mDSDescriptorHeap;  // the heap for Depth Stencil buffer descriptor
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mRenderTargetDescriptorHeap{};
     UINT64 mRenderTargetViewDescriptorSize{0u};
 
@@ -77,10 +77,12 @@ private:
 
     Microsoft::WRL::ComPtr<ID3D12Resource> mIndexBuffer{};
     D3D12_INDEX_BUFFER_VIEW mIndexBufferView{};
-    ConstantBuffer mConstantBufferData{};
-    Microsoft::WRL::ComPtr<ID3D12Resource> mConstantBuffers[MAX_FRAMES_IN_FLIGHT];
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> mCommandAllocators[MAX_FRAMES_IN_FLIGHT]{};
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> mCommandLists[MAX_FRAMES_IN_FLIGHT]{};
 
-    std::unique_ptr<MD5Loader> md5Loader{};
+    ConstantBuffer mConstantBufferData{};  // temporal projection of gpu memory on cpu accessible memory
+    Microsoft::WRL::ComPtr<ID3D12Resource> mPistolConstantBuffers[MAX_FRAMES_IN_FLIGHT];
+    std::unique_ptr<MD5Loader> md5PistolModel{};
+    Microsoft::WRL::ComPtr<ID3D12Resource> mMonsterConstantBuffers[MAX_FRAMES_IN_FLIGHT];
+    std::unique_ptr<MD5Loader> md5MonsterModel{};
 };
