@@ -4,16 +4,16 @@
 
 class Camera {
 public:
-    constexpr static float ANGLE_GAIN = 0.25f;
-    constexpr static float GAIN_MOVEMENT = 0.25f;
+    constexpr static float ANGLE_GAIN = 0.6f;
+    constexpr static float GAIN_MOVEMENT = 0.35f;
 
-    enum class EDirection { Forward = 0, Left, Right, Back };
+    enum class EDirection { Forward = 0, Left, Right, Back, Turn_Left, Turn_Right };
 
     struct Perstective {
         float fovy = 65.0f;
         float aspect = 1.0f;  // width / height
         float _near = 0.01f;
-        float _far= 1000.0f;
+        float _far = 1000.0f;
     };
 
     struct ViewProj {

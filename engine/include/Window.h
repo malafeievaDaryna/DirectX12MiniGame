@@ -21,6 +21,11 @@ public:
         return mHeight;
     }
 
+    const POINT& resetMousePos() {
+        SetCursorPos(mDefaultMousePos.x, mDefaultMousePos.y);
+        return mDefaultMousePos;
+    }
+
 private:
     std::string mWindowClassName{};
     HWND mHwnd{nullptr};
@@ -28,4 +33,5 @@ private:
     bool mIsClosed{false};
     UINT32 mWidth{0u};
     UINT32 mHeight{0u};
+    POINT mDefaultMousePos;
 };

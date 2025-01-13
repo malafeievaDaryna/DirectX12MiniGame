@@ -199,42 +199,40 @@ bool DirectXRenderer::Run() {
     }
 
     auto kb = mKeyboard->GetState();
-    static int lastMouseX = mMouse->GetState().x;
-    static int lastMouseY = mMouse->GetState().y;
-
-    int deltaMouseX = mMouse->GetState().x - lastMouseX;
-    lastMouseX = mMouse->GetState().x;
-    lastMouseY = mMouse->GetState().y;
-    // log_debug("x", mMouse->GetState().x, "deltaMouseX", deltaMouseX);
 
     POINT mousePos;
     GetCursorPos(&mousePos);
-    log_debug("mousePos x", mousePos.x, " mousePos y ", mousePos.y);
+    // log_debug("mousePos x", mousePos.x, " mousePos y ", mousePos.y);
+
+    static int lastMouseX = mousePos.x;
+    static int lastMouseY = mousePos.y;
+
+    int deltaMouseX = mousePos.x - lastMouseX;
+
+    const auto defaultMousePos = mWindow->resetMousePos();
+    lastMouseX = defaultMousePos.x;
+    lastMouseY = defaultMousePos.y;
 
     if (deltaMouseX < 0) {
-        // log_debug("Left");
-        mCamera->update(Camera::EDirection::Left);
+        mCamera->update(Camera::EDirection::Turn_Left);
     } else if (deltaMouseX > 0) {
-        // log_debug("Right");
-        mCamera->update(Camera::EDirection::Right);
+        mCamera->update(Camera::EDirection::Turn_Right);
     }
 
     if (kb.Escape) {
         return false;
     }
     if (kb.W || kb.Up) {
-        log_debug("Up");
         mCamera->update(Camera::EDirection::Forward);
     }
     if (kb.A || kb.Left) {
-        log_debug("Left");
+        mCamera->update(Camera::EDirection::Left);
     }
     if (kb.S || kb.Down) {
-        log_debug("Down");
         mCamera->update(Camera::EDirection::Back);
     }
     if (kb.D || kb.Right) {
-        log_debug("Right");
+        mCamera->update(Camera::EDirection::Right);
     }
 
     Render();
@@ -335,7 +333,6 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
 
     mKeyboard = std::make_unique<DirectX::Keyboard>();
     mMouse = std::make_unique<DirectX::Mouse>();
-    mMouse->SetWindow(mWindow->hwnd());
 
     Camera::Perstective perspective;
     float aspectRatio = static_cast<float>(mWindow->width()) / mWindow->height();
@@ -343,7 +340,7 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     perspective.aspect = aspectRatio;
     perspective._near = 0.01f;
     perspective._far = 1000.0f;
-    mCamera = std::make_unique<Camera>(perspective, DirectX::XMFLOAT4{0, 100, -500, 1}, DirectX::XMFLOAT4{0, 0, 0, 0});
+    mCamera = std::make_unique<Camera>(perspective, DirectX::XMFLOAT4{0, 50, -500, 1}, DirectX::XMFLOAT4{0, 50, 0, 0});
 
     CreateDeviceAndSwapChain();
 
