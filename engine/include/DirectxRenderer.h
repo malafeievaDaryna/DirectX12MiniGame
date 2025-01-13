@@ -71,12 +71,15 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> mPso{};
 
     // TODO move it from here
+    // landscape
     Microsoft::WRL::ComPtr<ID3D12Resource> mUploadBuffer{};
     Microsoft::WRL::ComPtr<ID3D12Resource> mVertexBuffer{};
     D3D12_VERTEX_BUFFER_VIEW mVertexBufferView;
-
     Microsoft::WRL::ComPtr<ID3D12Resource> mIndexBuffer{};
     D3D12_INDEX_BUFFER_VIEW mIndexBufferView{};
+    utils::Texture2DResource mLandscapeTexture;
+
+
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> mCommandAllocators[MAX_FRAMES_IN_FLIGHT]{};
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> mCommandLists[MAX_FRAMES_IN_FLIGHT]{};
 

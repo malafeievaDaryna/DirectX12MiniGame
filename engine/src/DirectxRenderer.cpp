@@ -149,9 +149,18 @@ void DirectXRenderer::Render() {
     commandList->SetGraphicsRootConstantBufferView(1, mMonsterConstantBuffers[m_currentFrame]->GetGPUVirtualAddress());
     md5MonsterModel->Draw(commandList);
 
-    /*commandList->IASetVertexBuffers(0, 1, &mVertexBufferView);
-    commandList->IASetIndexBuffer(&mIndexBufferView);
-    commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);*/
+    // landscape
+    {
+        ID3D12DescriptorHeap* heaps[] = {mLandscapeTexture.srvDescriptorHeap.Get()};
+        commandList->SetDescriptorHeaps(1, heaps);
+        // Set slot 0 of our root signature to point to our descriptor heap with
+        // the texture SRV
+        commandList->SetGraphicsRootDescriptorTable(0, mLandscapeTexture.srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+
+        commandList->IASetVertexBuffers(0, 1, &mVertexBufferView);
+        commandList->IASetIndexBuffer(&mIndexBufferView);
+        commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
+    }
 
     D3D12_RESOURCE_BARRIER barrierAfter;
     barrierAfter.Transition.pResource = mRenderTargets[m_currentFrame].Get();
@@ -328,7 +337,7 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
         std::exit(-1);
     }
 
-    mWindow.reset(new Window("DirectXMiniGame", 1280, 720));
+    mWindow.reset(new Window("DirectXMiniGame", 1920, 1080));
     mWindow.get_deleter() = [](Window* ptr) { delete ptr; };
 
     mKeyboard = std::make_unique<DirectX::Keyboard>();
@@ -366,7 +375,12 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
                                IID_PPV_ARGS(&uploadCommandList));
     CreateRootSignature();
     CreatePipelineStateObject();
+
     CreateConstantBuffer();
+
+    // landscape
+    mLandscapeTexture = utils::CreateTexture(mDevice.Get(), uploadCommandList.Get(), "dark_dn.png");
+    CreateMeshBuffers(uploadCommandList.Get());
 
     md5PistolModel = std::make_unique<MD5Loader>(mDevice.Get(), uploadCommandList.Get(), "models/pistol.md5mesh",
                                                  "models/pistol_fire.md5anim");
@@ -394,30 +408,23 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     CloseHandle(waitEvent);
 }
 
-// TODO
 void DirectXRenderer::CreateMeshBuffers(ID3D12GraphicsCommandList* uploadCommandList) {
     struct Vertex {
         float position[3];
         float uv[2];
     };
 
-    // Declare upload buffer data as 'static' so it persists after returning from this function.
-    // Otherwise, we would need to explicitly wait for the GPU to copy data from the upload buffer
-    // to vertex/index default buffers due to how the GPU processes commands asynchronously.
-    static const Vertex vertices[4] = {// Upper Left
-                                       {{-1.0f, 1.0f, 0}, {0, 0}},
-                                       // Upper Right
-                                       {{1.0f, 1.0f, 0}, {1, 0}},
-                                       // Bottom right
-                                       {{1.0f, -1.0f, 0}, {1, 1}},
-                                       // Bottom left
-                                       {{-1.0f, -1.0f, 0}, {0, 1}}};
+    constexpr float landscapeScaleFactor = 500.0f;
+    const Vertex vertices[4] = {{{-1.0f * landscapeScaleFactor, 0.0f, -1.0f * landscapeScaleFactor}, {0, 0}},
+                                {{-1.0f * landscapeScaleFactor, 0.0f, 1.0f * landscapeScaleFactor}, {1, 0}},
+                                {{1.0f * landscapeScaleFactor, 0.0f, 1.0f * landscapeScaleFactor}, {1, 1}},
+                                {{1.0f * landscapeScaleFactor, 0.0f, -1.0f * landscapeScaleFactor}, {0, 1}}};
 
-    static const int indices[6] = {0, 1, 2, 2, 3, 0};
+    const int indices[6] = {0, 1, 2, 2, 3, 0};
 
-    static const int uploadBufferSize = sizeof(vertices) + sizeof(indices);
-    static const auto uploadHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
-    static const auto uploadBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize);
+    const int uploadBufferSize = sizeof(vertices) + sizeof(indices);
+    const auto uploadHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
+    const auto uploadBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize);
 
     // Create upload buffer on CPU
     mDevice->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &uploadBufferDesc,
@@ -426,13 +433,13 @@ void DirectXRenderer::CreateMeshBuffers(ID3D12GraphicsCommandList* uploadCommand
     // Create vertex & index buffer on the GPU
     // HEAP_TYPE_DEFAULT is on GPU, we also initialize with COPY_DEST state
     // so we don't have to transition into this before copying into them
-    static const auto defaultHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+    const auto defaultHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
 
-    static const auto vertexBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(sizeof(vertices));
+    const auto vertexBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(sizeof(vertices));
     mDevice->CreateCommittedResource(&defaultHeapProperties, D3D12_HEAP_FLAG_NONE, &vertexBufferDesc,
                                      D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&mVertexBuffer));
 
-    static const auto indexBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(sizeof(indices));
+    const auto indexBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(sizeof(indices));
     mDevice->CreateCommittedResource(&defaultHeapProperties, D3D12_HEAP_FLAG_NONE, &indexBufferDesc,
                                      D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&mIndexBuffer));
 
