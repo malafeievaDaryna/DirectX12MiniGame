@@ -379,7 +379,7 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     CreateConstantBuffer();
 
     // landscape
-    mLandscapeTexture = utils::CreateTexture(mDevice.Get(), uploadCommandList.Get(), "dark_dn.png");
+    mLandscapeTexture = utils::CreateTexture(mDevice.Get(), uploadCommandList.Get(), "landscape.png");
     CreateMeshBuffers(uploadCommandList.Get());
 
     md5PistolModel = std::make_unique<MD5Loader>(mDevice.Get(), uploadCommandList.Get(), "models/pistol.md5mesh",
