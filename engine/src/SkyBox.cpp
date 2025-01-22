@@ -26,6 +26,7 @@ const char vs_shader[] =
     "	VertexShaderOutput output;\n"
     "   output.position = mul(MVP, position);\n"
     "   output.position.z = output.position.w;\n"
+    "   output.position.y = 0.3 * output.position.y + 0.15; // for better visual effect [-1: 1] -> [-0.15; 0.45]\n"
     "	output.uv = position.xyz;\n"
     "	return output;\n"
     "}\n";
