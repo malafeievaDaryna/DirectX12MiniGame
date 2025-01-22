@@ -13,12 +13,11 @@
 #include <vector>
 #include "Camera.h"
 #include "MD5Loader.h"
+#include "SkyBox.h"
 
 class Window;
 
 class DirectXRenderer {
-    static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 3;
-    static constexpr DXGI_FORMAT DEPTH_FORMAT = DXGI_FORMAT_D32_FLOAT;
     struct ConstantBuffer {
         DirectX::XMMATRIX mvp;
     };
@@ -53,14 +52,14 @@ private:
     D3D12_RECT mRectScissor{};
     Microsoft::WRL::ComPtr<IDXGISwapChain> mSwapChain{};
     Microsoft::WRL::ComPtr<ID3D12Device> mDevice{};
-    Microsoft::WRL::ComPtr<ID3D12Resource> mRenderTargets[MAX_FRAMES_IN_FLIGHT]{};
+    Microsoft::WRL::ComPtr<ID3D12Resource> mRenderTargets[constants::MAX_FRAMES_IN_FLIGHT]{};
     Microsoft::WRL::ComPtr<ID3D12Resource> mDepthStencilBuffer;
     Microsoft::WRL::ComPtr<ID3D12CommandQueue> mCommandQueue{};
 
-    HANDLE mFrameFenceEvents[MAX_FRAMES_IN_FLIGHT]{nullptr};
-    Microsoft::WRL::ComPtr<ID3D12Fence> mFrameFences[MAX_FRAMES_IN_FLIGHT]{};
+    HANDLE mFrameFenceEvents[constants::MAX_FRAMES_IN_FLIGHT]{nullptr};
+    Microsoft::WRL::ComPtr<ID3D12Fence> mFrameFences[constants::MAX_FRAMES_IN_FLIGHT]{};
     UINT64 mCurrentFenceValue{0u};
-    UINT64 mFenceValues[MAX_FRAMES_IN_FLIGHT]{};
+    UINT64 mFenceValues[constants::MAX_FRAMES_IN_FLIGHT]{};
     UINT32 m_currentFrame{0u};
 
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mDSDescriptorHeap;  // the heap for Depth Stencil buffer descriptor
@@ -79,13 +78,13 @@ private:
     D3D12_INDEX_BUFFER_VIEW mIndexBufferView{};
     utils::Texture2DResource mLandscapeTexture;
 
-
-    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> mCommandAllocators[MAX_FRAMES_IN_FLIGHT]{};
-    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> mCommandLists[MAX_FRAMES_IN_FLIGHT]{};
+    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> mCommandAllocators[constants::MAX_FRAMES_IN_FLIGHT]{};
+    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> mCommandLists[constants::MAX_FRAMES_IN_FLIGHT]{};
 
     ConstantBuffer mConstantBufferData{};  // temporal projection of gpu memory on cpu accessible memory
-    Microsoft::WRL::ComPtr<ID3D12Resource> mPistolConstantBuffers[MAX_FRAMES_IN_FLIGHT];
+    Microsoft::WRL::ComPtr<ID3D12Resource> mPistolConstantBuffers[constants::MAX_FRAMES_IN_FLIGHT];
     std::unique_ptr<MD5Loader> md5PistolModel{};
-    Microsoft::WRL::ComPtr<ID3D12Resource> mMonsterConstantBuffers[MAX_FRAMES_IN_FLIGHT];
+    Microsoft::WRL::ComPtr<ID3D12Resource> mMonsterConstantBuffers[constants::MAX_FRAMES_IN_FLIGHT];
     std::unique_ptr<MD5Loader> md5MonsterModel{};
+    std::unique_ptr<SkyBox> mSkyBox{};
 };

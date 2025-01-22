@@ -8,6 +8,31 @@
 #include <stb_image.h>
 
 namespace utils {
+void ThrowIfFailed(HRESULT hr) {
+    if (FAILED(hr)) {
+        // Set a breakpoint on this line to catch DirectX API errors
+        throw std::exception();
+    }
+}
+
+DirectX::XMMATRIX extractRotationMatrix(const DirectX::XMMATRIX& input) {
+    using namespace DirectX;
+    XMFLOAT4X4 rotationOnly;
+    XMStoreFloat4x4(&rotationOnly, input);
+    // removing scaling from the matrix
+    rotationOnly._14 = 0;
+    rotationOnly._24 = 0;
+    rotationOnly._34 = 0;
+    // removing translation from the matrix
+    rotationOnly._41 = 0;
+    rotationOnly._42 = 0;
+    rotationOnly._43 = 0;
+
+    rotationOnly._44 = 1;
+
+    return XMLoadFloat4x4(&rotationOnly);
+}
+
 Texture2DResource CreateTexture(ID3D12Device* device, ID3D12GraphicsCommandList* uploadCommandList,
                                 const std::string& textureFileName) {
     assert(uploadCommandList && device && !textureFileName.empty());
@@ -23,7 +48,7 @@ Texture2DResource CreateTexture(ID3D12Device* device, ID3D12GraphicsCommandList*
         std::size_t imageSizeTotal = 0u;
         using dataTexturetPtr = std::unique_ptr<stbi_uc, decltype(&stbi_image_free)>;
 
-        std::string path = TEXTURE_PATH + textureFileName;
+        std::string path = constants::TEXTURE_PATH + textureFileName;
 
         /// STBI_rgb_alpha coerces to have ALPHA chanel for consistency with alphaless images
         stbi_uc* pixels = stbi_load(path.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);

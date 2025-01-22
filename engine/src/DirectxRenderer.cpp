@@ -16,6 +16,7 @@
 #include <cassert>
 
 using namespace Microsoft::WRL;
+using namespace constants;
 using namespace utils;
 
 namespace {
@@ -133,6 +134,8 @@ void DirectXRenderer::Render() {
     md5PistolModel->UpdateMD5Model(deltaTimeMS, 0);
     md5MonsterModel->UpdateMD5Model(deltaTimeMS, 0);
 
+    mSkyBox->Update(m_currentFrame, mCamera->viewProjMat());
+
     static const float clearColor[] = {1.0f, 1.0f, 1.0f, 1.0f};
 
     commandList->ClearRenderTargetView(renderTargetHandle, clearColor, 0, nullptr);
@@ -161,6 +164,8 @@ void DirectXRenderer::Render() {
         commandList->IASetIndexBuffer(&mIndexBufferView);
         commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
     }
+
+    mSkyBox->Draw(m_currentFrame, commandList);
 
     D3D12_RESOURCE_BARRIER barrierAfter;
     barrierAfter.Transition.pResource = mRenderTargets[m_currentFrame].Get();
@@ -387,6 +392,8 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     md5MonsterModel =
         std::make_unique<MD5Loader>(mDevice.Get(), uploadCommandList.Get(), "models/pinky.md5mesh", "models/pinky_idle.md5anim");
 
+    mSkyBox = std::make_unique<SkyBox>(mDevice.Get(), mCommandQueue.Get(), uploadCommandList.Get(), "skybox.dds");
+
     uploadCommandList->Close();
 
     // Execute the upload and finish the command list
@@ -518,8 +525,6 @@ void DirectXRenderer::CreatePipelineStateObject() {
     psoDesc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
     psoDesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
     psoDesc.SampleDesc.Count = 1;
-    psoDesc.DepthStencilState.DepthEnable = false;
-    psoDesc.DepthStencilState.StencilEnable = false;
     psoDesc.SampleMask = 0xFFFFFFFF;
     psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     // let's create default depth testing: DepthEnable = TRUE; DepthFunc = D3D12_COMPARISON_FUNC_LESS;
