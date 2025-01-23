@@ -182,7 +182,7 @@ void DirectXRenderer::Render() {
     ID3D12CommandList* commandLists[] = {commandList};
     mCommandQueue->ExecuteCommandLists(std::extent<decltype(commandLists)>::value, commandLists);
 
-    mSwapChain->Present(CheckTearingSupport() ? 0 : 1, 0);
+    mSwapChain->Present(mIsTearingSupport ? 0 : 1, 0);
 
     // the value the gpu will set when preseting finished
     const auto fenceValue = mCurrentFenceValue;
@@ -640,9 +640,10 @@ void DirectXRenderer::Shutdown() {
 bool DirectXRenderer::CheckTearingSupport() {
     BOOL allowTearing = FALSE;
 
-    ComPtr<IDXGIFactory5> factory;
-    if (SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) {
-        if (FAILED(factory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allowTearing, sizeof(allowTearing)))) {
+    ComPtr<IDXGIFactory5> factory5;
+    ComPtr<IDXGIFactory1> factory1;
+    if (SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory1))) && SUCCEEDED(factory1.As(&factory5))) {
+        if (FAILED(factory5->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allowTearing, sizeof(allowTearing)))) {
             allowTearing = FALSE;
         }
     }
@@ -659,6 +660,8 @@ void DirectXRenderer::CreateDeviceAndSwapChain() {
     debugController->EnableDebugLayer();
 #endif
 
+    mIsTearingSupport = CheckTearingSupport();
+
     DXGI_SWAP_CHAIN_DESC swapChainDesc;
     ::ZeroMemory(&swapChainDesc, sizeof(swapChainDesc));
 
@@ -673,7 +676,7 @@ void DirectXRenderer::CreateDeviceAndSwapChain() {
     // swapChainDesc.Scaling = DXGI_SCALING_STRETCH;
     swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     swapChainDesc.Windowed = true;
-    swapChainDesc.Flags = CheckTearingSupport() ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;  // set free-sync\g-sync instead v-sync
+    swapChainDesc.Flags = mIsTearingSupport ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;  // set free-sync\g-sync instead v-sync
 
     // the driver may support directx 12 api but without hardware acceleration
     // D3D_FEATURE_LEVEL_11_0 hardware acceleration is present for sure

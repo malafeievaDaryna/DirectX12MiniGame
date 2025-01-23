@@ -55,6 +55,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> mRenderTargets[constants::MAX_FRAMES_IN_FLIGHT]{};
     Microsoft::WRL::ComPtr<ID3D12Resource> mDepthStencilBuffer;
     Microsoft::WRL::ComPtr<ID3D12CommandQueue> mCommandQueue{};
+    bool mIsTearingSupport{false};
 
     HANDLE mFrameFenceEvents[constants::MAX_FRAMES_IN_FLIGHT]{nullptr};
     Microsoft::WRL::ComPtr<ID3D12Fence> mFrameFences[constants::MAX_FRAMES_IN_FLIGHT]{};
