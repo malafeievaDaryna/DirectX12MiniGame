@@ -1,7 +1,11 @@
 #include "Window.h"
-#include <cassert>
 #include <Keyboard.h>
 #include <Mouse.h>
+#include <cassert>
+
+#include <imgui/backends/imgui_impl_dx12.h>
+#include <imgui/backends/imgui_impl_win32.h>
+#include <imgui/imgui.h>
 
 namespace {
 LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
@@ -55,7 +59,7 @@ Window::Window(const std::string& title, const int width, const int height)
     rect.bottom = mHeight + rect.top;
     AdjustWindowRectEx(&rect, style, 0, 0);  // it's required because window frame takes several pixels
 
-    SetProcessDPIAware(); // ignore dpi when setting cursor
+    SetProcessDPIAware();  // ignore dpi when setting cursor
 
     {
         WNDCLASSEX wndcls = {};
@@ -75,15 +79,30 @@ Window::Window(const std::string& title, const int width, const int height)
     mHwnd = CreateWindowEx(0, mWindowClassName.c_str(), mWindowClassName.c_str(), style, rect.left, rect.top,
                            rect.right - rect.left, rect.bottom - rect.top, NULL, NULL, m_hinstance, NULL);
 
+    // Setup Dear ImGui context
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    (void)io;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;  // Enable Keyboard Controls
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;   // Enable Gamepad Controls
+    ImGui::StyleColorsDark();
+
+    ImGui_ImplWin32_Init(mHwnd);
+
     ShowWindow(mHwnd, SW_SHOW);
 
     ShowCursor(false);
-    
+
     mDefaultMousePos.x = mWidth / 2;
     mDefaultMousePos.y = mHeight / 2;
     resetMousePos();
 }
 
 Window::~Window() {
+    ImGui_ImplDX12_Shutdown();
+    ImGui_ImplWin32_Shutdown();
+    ImGui::DestroyContext();
+
     UnregisterClassA(mWindowClassName.c_str(), (HINSTANCE)::GetModuleHandle(NULL));
 }

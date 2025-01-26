@@ -1,6 +1,8 @@
 #include "MD5Loader.h"
+#include <array>
 #include <cassert>
 #include <fstream>
+#include <future>
 #include "d3dx12.h"
 
 MD5Loader::MD5Loader(ID3D12Device* device, ID3D12GraphicsCommandList* uploadCommandList, const std::string& md5ModelFileName,
@@ -70,6 +72,7 @@ bool MD5Loader::LoadMD5Anim(const std::string& filename) {
                     // because the bind pose (md5mesh) joint hierarchy and the animations (md5anim)
                     // joint hierarchy must match up
                     bool jointMatchFound = false;
+                    tempAnim.jointInfo.reserve(mMD5Model.numJoints);
                     for (int k = 0; k < mMD5Model.numJoints; k++) {
                         if (mMD5Model.joints[k].name == tempJoint.name) {
                             if (mMD5Model.joints[k].parentID == tempJoint.parentID) {
@@ -87,6 +90,7 @@ bool MD5Loader::LoadMD5Anim(const std::string& filename) {
             {
                 fileIn >> checkString;  // Skip opening bracket "{"
 
+                tempAnim.frameBounds.reserve(tempAnim.numFrames);
                 for (int i = 0; i < tempAnim.numFrames; i++) {
                     BoundingBox tempBB;
 
@@ -102,6 +106,7 @@ bool MD5Loader::LoadMD5Anim(const std::string& filename) {
             {                                       // All frames will build their skeletons off this
                 fileIn >> checkString;              // Skip opening bracket "{"
 
+                tempAnim.baseFrameJoints.reserve(tempAnim.numJoints);
                 for (int i = 0; i < tempAnim.numJoints; i++) {
                     Joint tempBFJ;
 
@@ -122,6 +127,7 @@ bool MD5Loader::LoadMD5Anim(const std::string& filename) {
 
                 fileIn >> checkString;  // Skip opening bracket "{"
 
+                tempFrame.frameData.reserve(tempAnim.numAnimatedComponents);
                 for (int i = 0; i < tempAnim.numAnimatedComponents; i++) {
                     float tempData;
                     fileIn >> tempData;  // Get the data
@@ -134,6 +140,7 @@ bool MD5Loader::LoadMD5Anim(const std::string& filename) {
                 ///*** build the frame skeleton ***///
                 std::vector<Joint> tempSkeleton;
 
+                tempSkeleton.reserve(tempAnim.jointInfo.size());
                 for (int i = 0; i < tempAnim.jointInfo.size(); i++) {
                     int k = 0;  // Keep track of position in frameData array
 
@@ -263,13 +270,71 @@ void MD5Loader::UpdateMD5Model(float deltaTimeMS, int animation) {
     float interpolation =
         currentFrame - frame0;  // Get the remainder (in time) between frame0 and frame1 to use as interpolation factor
 
-    std::vector<Joint> interpolatedSkeleton;  // Create a frame skeleton to store the interpolated skeletons in
+    // Create a frame skeleton to store the interpolated skeletons in
+    if (mInterpolatedSkeleton.size() < mMD5Model.animations[animation].numJoints) {
+        mInterpolatedSkeleton.resize(mMD5Model.animations[animation].numJoints);
+    }
 
-    // Compute the interpolated skeleton
-    for (int i = 0; i < mMD5Model.animations[animation].numJoints; i++) {
-        Joint tempJoint;
-        Joint joint0 = mMD5Model.animations[animation].frameSkeleton[frame0][i];  // Get the i'th joint of frame0's skeleton
-        Joint joint1 = mMD5Model.animations[animation].frameSkeleton[frame1][i];  // Get the i'th joint of frame1's skeleton
+    std::array<std::future<void>, 4u> workerThreads;
+    std::size_t chunkOffset{0u};
+    std::size_t indexFrom{0u};
+    std::size_t indexTo{0u};
+    std::size_t workerThreadIndexPlusOne{0u};
+
+    // Compute the interpolated skeleton in worker_threads
+    chunkOffset = mMD5Model.animations[animation].numJoints / workerThreads.size();
+    for (std::size_t workerThreadIndex = 0u; workerThreadIndex < workerThreads.size(); ++workerThreadIndex) {
+        workerThreadIndexPlusOne = workerThreadIndex + 1U;
+        indexFrom = workerThreadIndex * chunkOffset;
+        indexTo = workerThreadIndexPlusOne >= workerThreads.size() ? mMD5Model.animations[animation].numJoints
+                                                                   : workerThreadIndexPlusOne * chunkOffset;
+        workerThreads[workerThreadIndex] = std::async(std::launch::async, &MD5Loader::calculateInterpolatedSkeleton, this,
+                                                      animation, frame0, frame1, interpolation, indexFrom, indexTo);
+    }
+    for (auto& thread : workerThreads) {
+        thread.wait();
+    }
+
+    for (int k = 0; k < mMD5Model.numSubsets; k++) {
+        chunkOffset = mMD5Model.subsets[k].vertices.size() / workerThreads.size();
+        for (std::size_t workerThreadIndex = 0u; workerThreadIndex < workerThreads.size(); ++workerThreadIndex) {
+            workerThreadIndexPlusOne = workerThreadIndex + 1U;
+            indexFrom = workerThreadIndex * chunkOffset;
+            indexTo = workerThreadIndexPlusOne >= workerThreads.size() ? mMD5Model.subsets[k].vertices.size()
+                                                                       : workerThreadIndexPlusOne * chunkOffset;
+            workerThreads[workerThreadIndex] =
+                std::async(std::launch::async, &MD5Loader::updateAnimationChunk, this, k, indexFrom, indexTo);
+        }
+
+        for (auto& thread : workerThreads) {
+            thread.wait();
+        }
+
+        // Update the subsets vertex buffer
+        const int32_t indicesSize = sizeof(uint32_t) * mMD5Model.subsets[k].numTriangles * 3;
+        const int32_t verticesSize = sizeof(Vertex) * mMD5Model.subsets[k].vertices.size();
+        void* data;
+        mMD5Model.subsets[k].indicesBuffer->Map(0, nullptr, &data);
+        memcpy(data, mMD5Model.subsets[k].indices.data(), indicesSize);
+        mMD5Model.subsets[k].indicesBuffer->Unmap(0, nullptr);
+
+        mMD5Model.subsets[k].verticesBuffer->Map(0, nullptr, &data);
+        memcpy(data, mMD5Model.subsets[k].vertices.data(), verticesSize);
+        mMD5Model.subsets[k].verticesBuffer->Unmap(0, nullptr);
+    }
+}
+
+void MD5Loader::calculateInterpolatedSkeleton(std::size_t animationID, std::size_t frame0, std::size_t frame1,
+                                              float interpolation, std::size_t indexFrom, std::size_t indexTo) {
+    ModelAnimation& animation = mMD5Model.animations[animationID];
+    assert(indexFrom < animation.numJoints && indexTo <= animation.numJoints && indexTo <= mInterpolatedSkeleton.size() &&
+           animation.frameSkeleton.size() > frame0 && animation.frameSkeleton.size() > frame1);
+    Joint joint0;
+    Joint joint1;
+    for (std::size_t i = indexFrom; i < indexTo; i++) {
+        Joint& tempJoint = mInterpolatedSkeleton[i];
+        joint0 = animation.frameSkeleton[frame0][i];  // Get the i'th joint of frame0's skeleton
+        joint1 = animation.frameSkeleton[frame1][i];  // Get the i'th joint of frame1's skeleton
 
         tempJoint.parentID = joint0.parentID;  // Set the tempJoints parent id
 
@@ -286,80 +351,60 @@ void MD5Loader::UpdateMD5Model(float deltaTimeMS, int animation) {
 
         // Interpolate orientations using spherical interpolation (Slerp)
         XMStoreFloat4(&tempJoint.orientation, XMQuaternionSlerp(joint0Orient, joint1Orient, interpolation));
-
-        interpolatedSkeleton.push_back(tempJoint);  // Push the joint back into our interpolated skeleton
     }
+}
 
-    for (int k = 0; k < mMD5Model.numSubsets; k++) {
-        for (int i = 0; i < mMD5Model.subsets[k].vertices.size(); ++i) {
-            Vertex tempVert = mMD5Model.subsets[k].vertices[i];
-            tempVert.pos = XMFLOAT3(0, 0, 0);     // Make sure the vertex's pos is cleared first
-            tempVert.normal = XMFLOAT3(0, 0, 0);  // Clear vertices normal
+void MD5Loader::updateAnimationChunk(std::size_t subsetId, std::size_t indexFrom, std::size_t indexTo) {
+    ModelSubset& subset = mMD5Model.subsets[subsetId];
+    assert(indexFrom < subset.vertices.size() && indexTo <= subset.vertices.size());
 
-            // Sum up the joints and weights information to get vertex's position and normal
-            for (int j = 0; j < tempVert.WeightCount; ++j) {
-                Weight tempWeight = mMD5Model.subsets[k].weights[tempVert.StartWeight + j];
-                Joint tempJoint = interpolatedSkeleton[tempWeight.jointID];
+    XMFLOAT3 rotatedPoint;
+    for (std::size_t i = indexFrom; i < indexTo; ++i) {
+        Vertex& tempVert = subset.vertices[i];
+        tempVert.pos = XMFLOAT3(0, 0, 0);     // Make sure the vertex's pos is cleared first
+        tempVert.normal = XMFLOAT3(0, 0, 0);  // Clear vertices normal
 
-                // Convert joint orientation and weight pos to vectors for easier computation
-                XMVECTOR tempJointOrientation = XMVectorSet(tempJoint.orientation.x, tempJoint.orientation.y,
-                                                            tempJoint.orientation.z, tempJoint.orientation.w);
-                XMVECTOR tempWeightPos = XMVectorSet(tempWeight.pos.x, tempWeight.pos.y, tempWeight.pos.z, 0.0f);
+        // Sum up the joints and weights information to get vertex's position and normal
+        for (std::size_t j = 0; j < tempVert.WeightCount; ++j) {
+            const Weight& tempWeight = subset.weights[tempVert.StartWeight + j];
+            const Joint& tempJoint = mInterpolatedSkeleton[tempWeight.jointID];
 
-                // We will need to use the conjugate of the joint orientation quaternion
-                XMVECTOR tempJointOrientationConjugate = XMQuaternionInverse(tempJointOrientation);
+            // Convert joint orientation and weight pos to vectors for easier computation
+            XMVECTOR tempJointOrientation =
+                XMVectorSet(tempJoint.orientation.x, tempJoint.orientation.y, tempJoint.orientation.z, tempJoint.orientation.w);
+            XMVECTOR tempWeightPos = XMVectorSet(tempWeight.pos.x, tempWeight.pos.y, tempWeight.pos.z, 0.0f);
 
-                // Calculate vertex position (in joint space, eg. rotate the point around (0,0,0)) for this weight using the joint
-                // orientation quaternion and its conjugate We can rotate a point using a quaternion with the equation
-                // "rotatedPoint = quaternion * point * quaternionConjugate"
-                XMFLOAT3 rotatedPoint;
-                XMStoreFloat3(&rotatedPoint, XMQuaternionMultiply(XMQuaternionMultiply(tempJointOrientation, tempWeightPos),
-                                                                  tempJointOrientationConjugate));
+            // We will need to use the conjugate of the joint orientation quaternion
+            XMVECTOR tempJointOrientationConjugate = XMQuaternionInverse(tempJointOrientation);
 
-                // Now move the verices position from joint space (0,0,0) to the joints position in world space, taking the
-                // weights bias into account
-                tempVert.pos.x += (tempJoint.pos.x + rotatedPoint.x) * tempWeight.bias;
-                tempVert.pos.y += (tempJoint.pos.y + rotatedPoint.y) * tempWeight.bias;
-                tempVert.pos.z += (tempJoint.pos.z + rotatedPoint.z) * tempWeight.bias;
+            // Calculate vertex position (in joint space, eg. rotate the point around (0,0,0)) for this weight using the joint
+            // orientation quaternion and its conjugate We can rotate a point using a quaternion with the equation
+            // "rotatedPoint = quaternion * point * quaternionConjugate"
+            XMStoreFloat3(&rotatedPoint, XMQuaternionMultiply(XMQuaternionMultiply(tempJointOrientation, tempWeightPos),
+                                                              tempJointOrientationConjugate));
 
-                // Compute the normals for this frames skeleton using the weight normals from before
-                // We can comput the normals the same way we compute the vertices position, only we don't have to translate them
-                // (just rotate)
-                XMVECTOR tempWeightNormal = XMVectorSet(tempWeight.normal.x, tempWeight.normal.y, tempWeight.normal.z, 0.0f);
+            // Now move the verices position from joint space (0,0,0) to the joints position in world space, taking the
+            // weights bias into account
+            tempVert.pos.x += (tempJoint.pos.x + rotatedPoint.x) * tempWeight.bias;
+            tempVert.pos.y += (tempJoint.pos.y + rotatedPoint.y) * tempWeight.bias;
+            tempVert.pos.z += (tempJoint.pos.z + rotatedPoint.z) * tempWeight.bias;
 
-                // Rotate the normal
-                XMStoreFloat3(&rotatedPoint, XMQuaternionMultiply(XMQuaternionMultiply(tempJointOrientation, tempWeightNormal),
-                                                                  tempJointOrientationConjugate));
+            // Compute the normals for this frames skeleton using the weight normals from before
+            // We can comput the normals the same way we compute the vertices position, only we don't have to translate them
+            // (just rotate)
+            XMVECTOR tempWeightNormal = XMVectorSet(tempWeight.normal.x, tempWeight.normal.y, tempWeight.normal.z, 0.0f);
 
-                // Add to vertices normal and ake weight bias into account
-                tempVert.normal.x -= rotatedPoint.x * tempWeight.bias;
-                tempVert.normal.y -= rotatedPoint.y * tempWeight.bias;
-                tempVert.normal.z -= rotatedPoint.z * tempWeight.bias;
-            }
+            // Rotate the normal
+            XMStoreFloat3(&rotatedPoint, XMQuaternionMultiply(XMQuaternionMultiply(tempJointOrientation, tempWeightNormal),
+                                                              tempJointOrientationConjugate));
 
-            mMD5Model.subsets[k].positions[i] =
-                tempVert.pos;  // Store the vertices position in the position vector instead of straight into the vertex vector
-            mMD5Model.subsets[k].vertices[i].normal = tempVert.normal;  // Store the vertices normal
-            XMStoreFloat3(&mMD5Model.subsets[k].vertices[i].normal,
-                          XMVector3Normalize(XMLoadFloat3(&mMD5Model.subsets[k].vertices[i].normal)));
+            // Add to vertices normal and ake weight bias into account
+            tempVert.normal.x -= rotatedPoint.x * tempWeight.bias;
+            tempVert.normal.y -= rotatedPoint.y * tempWeight.bias;
+            tempVert.normal.z -= rotatedPoint.z * tempWeight.bias;
         }
 
-        // Put the positions into the vertices for this subset
-        for (int i = 0; i < mMD5Model.subsets[k].vertices.size(); i++) {
-            mMD5Model.subsets[k].vertices[i].pos = mMD5Model.subsets[k].positions[i];
-        }
-
-        // Update the subsets vertex buffer
-        const int32_t indicesSize = sizeof(uint32_t) * mMD5Model.subsets[k].numTriangles * 3;
-        const int32_t verticesSize = sizeof(Vertex) * mMD5Model.subsets[k].vertices.size();
-        void* data;
-        mMD5Model.subsets[k].indicesBuffer->Map(0, nullptr, &data);
-        memcpy(data, mMD5Model.subsets[k].indices.data(), indicesSize);
-        mMD5Model.subsets[k].indicesBuffer->Unmap(0, nullptr);
-
-        mMD5Model.subsets[k].verticesBuffer->Map(0, nullptr, &data);
-        memcpy(data, mMD5Model.subsets[k].vertices.data(), verticesSize);
-        mMD5Model.subsets[k].verticesBuffer->Unmap(0, nullptr);
+        XMStoreFloat3(&tempVert.normal, XMVector3Normalize(XMLoadFloat3(&tempVert.normal)));
     }
 }
 
@@ -381,8 +426,10 @@ bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* up
                 std::getline(fileIn, checkString);  // Ignore the rest of this line
             } else if (checkString == "numJoints") {
                 fileIn >> mMD5Model.numJoints;  // Store number of joints
+                mMD5Model.joints.reserve(mMD5Model.numJoints);
             } else if (checkString == "numMeshes") {
                 fileIn >> mMD5Model.numSubsets;  // Store number of meshes or subsets which we will call them
+                mMD5Model.subsets.reserve(mMD5Model.numSubsets);
             } else if (checkString == "joints") {
                 Joint tempJoint;
 
@@ -441,7 +488,8 @@ bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* up
 
                 fileIn >> checkString;  // Skip the "}"
             } else if (checkString == "mesh") {
-                ModelSubset subset;
+                mMD5Model.subsets.emplace_back();
+                ModelSubset& subset = mMD5Model.subsets.back();
                 int numVerts, numTris, numWeights;
 
                 fileIn >> checkString;  // Skip the "{"
@@ -480,8 +528,10 @@ bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* up
 
                         std::getline(fileIn, checkString);  // Skip rest of this line
 
+                        subset.vertices.reserve(numVerts);
                         for (int i = 0; i < numVerts; i++) {
-                            Vertex tempVert;
+                            subset.vertices.emplace_back();
+                            Vertex& tempVert = subset.vertices.back();
 
                             fileIn >> checkString  // Skip "vert # ("
                                 >> checkString >> checkString;
@@ -496,8 +546,6 @@ bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* up
                             fileIn >> tempVert.WeightCount;  // Number of weights for this vertex
 
                             std::getline(fileIn, checkString);  // Skip rest of this line
-
-                            subset.vertices.push_back(tempVert);  // Push back this vertex into subsets vertex vector
                         }
                     } else if (checkString == "numtris") {
                         fileIn >> numTris;
@@ -505,6 +553,7 @@ bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* up
 
                         std::getline(fileIn, checkString);  // Skip rest of this line
 
+                        subset.indices.reserve(numTris * 3u);
                         for (int i = 0; i < numTris; i++)  // Loop through each triangle
                         {
                             uint32_t tempIndex;
@@ -524,6 +573,7 @@ bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* up
 
                         std::getline(fileIn, checkString);  // Skip rest of this line
 
+                        subset.weights.reserve(numWeights);
                         for (int i = 0; i < numWeights; i++) {
                             Weight tempWeight;
                             fileIn >> checkString >> checkString;  // Skip "weight #"
@@ -550,13 +600,13 @@ bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* up
 
                 //*** find each vertex's position using the joints and weights ***//
                 for (int i = 0; i < subset.vertices.size(); ++i) {
-                    Vertex tempVert = subset.vertices[i];
+                    Vertex& tempVert = subset.vertices[i];
                     tempVert.pos = XMFLOAT3(0, 0, 0);  // Make sure the vertex's pos is cleared first
 
                     // Sum up the joints and weights information to get vertex's position
                     for (int j = 0; j < tempVert.WeightCount; ++j) {
-                        Weight tempWeight = subset.weights[tempVert.StartWeight + j];
-                        Joint tempJoint = mMD5Model.joints[tempWeight.jointID];
+                        Weight& tempWeight = subset.weights[tempVert.StartWeight + j];
+                        Joint& tempJoint = mMD5Model.joints[tempWeight.jointID];
 
                         // Convert joint orientation and weight pos to vectors for easier computation
                         // When converting a 3d vector to a quaternion, you should put 0 for "w", and
@@ -594,16 +644,6 @@ bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* up
                         // control the weight has over the final vertices position. All weight's bias effecting a single vertex's
                         // position must add up to 1.
                     }
-
-                    subset.positions.push_back(tempVert.pos);  // Store the vertices position in the position vector instead of
-                                                               // straight into the vertex vector
-                    // since we can use the positions vector for certain things like collision detection or picking
-                    // without having to work with the entire vertex structure.
-                }
-
-                // Put the positions into the vertices for this subset
-                for (int i = 0; i < subset.vertices.size(); i++) {
-                    subset.vertices[i].pos = subset.positions[i];
                 }
 
                 //*** Calculate vertex normals using normal averaging ***///
@@ -677,13 +717,13 @@ bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* up
 
                     ///////////////**************new**************////////////////////
                     // Create the joint space normal for easy normal calculations in animation
-                    Vertex tempVert = subset.vertices[i];                   // Get the current vertex
+                    Vertex& tempVert = subset.vertices[i];                  // Get the current vertex
                     subset.jointSpaceNormals.push_back(XMFLOAT3(0, 0, 0));  // Push back a blank normal
                     XMVECTOR normal = XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);  // Clear normal
 
                     for (int k = 0; k < tempVert.WeightCount; k++)  // Loop through each of the vertices weights
                     {
-                        Joint tempJoint =
+                        Joint& tempJoint =
                             mMD5Model.joints[subset.weights[tempVert.StartWeight + k].jointID];  // Get the joints orientation
                         XMVECTOR jointOrientation = XMVectorSet(tempJoint.orientation.x, tempJoint.orientation.y,
                                                                 tempJoint.orientation.z, tempJoint.orientation.w);
@@ -728,9 +768,6 @@ bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* up
                 subset.verticesBuffer->Map(0, nullptr, &data);
                 memcpy(data, subset.vertices.data(), verticesSize);
                 subset.verticesBuffer->Unmap(0, nullptr);
-
-                // Push back the temp subset into the models subset vector
-                mMD5Model.subsets.push_back(subset);
             }
         }
     } else {

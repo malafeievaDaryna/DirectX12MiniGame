@@ -41,6 +41,7 @@ private:
     void CreateDeviceAndSwapChain();
     void SetupSwapChain();
     void SetupRenderTargets();
+    void SetupImGui();
 
 private:
     std::unique_ptr<Window, void (*)(Window*)> mWindow;
@@ -88,4 +89,6 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> mMonsterConstantBuffers[constants::MAX_FRAMES_IN_FLIGHT];
     std::unique_ptr<MD5Loader> md5MonsterModel{};
     std::unique_ptr<SkyBox> mSkyBox{};
+
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mImGuiDescriptorHeap;
 };

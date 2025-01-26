@@ -15,6 +15,10 @@
 #include <algorithm>
 #include <cassert>
 
+#include <imgui/backends/imgui_impl_dx12.h>
+#include <imgui/backends/imgui_impl_win32.h>
+#include <imgui/imgui.h>
+
 using namespace Microsoft::WRL;
 using namespace constants;
 using namespace utils;
@@ -101,6 +105,24 @@ void DirectXRenderer::Render() {
     static auto endTime = std::chrono::high_resolution_clock::now();
     static float deltaTimeMS = 0.0f;
 
+    // Start the Dear ImGui frame
+    ImGui_ImplDX12_NewFrame();
+    ImGui_ImplWin32_NewFrame();
+    ImGui::NewFrame();
+#ifdef _DEBUG
+    static std::pair<float, std::pair<uint32_t, float>> FPS_METRICS{
+        0.0f, {0u, 0.0f}};  // current FPS value and frames per elapsed milliseconds
+    ImGui::Begin("Debug Window", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize);
+    ImGui::SetNextWindowBgAlpha(0.5f);
+    ImGui::SetWindowFontScale(1.3);
+    ImGui::SetWindowSize(ImVec2(0, 0));
+    ImGui::BeginChild("First", ImVec2(200, 30));
+    ImGui::Text("FPS %f", FPS_METRICS.first);
+    ImGui::EndChild();
+    ImGui::End();
+#endif
+    ImGui::Render();
+
     // waiting for completion of frame processing on gpu
     WaitForFence(mFrameFences[m_currentFrame].Get(), mFenceValues[m_currentFrame], mFrameFenceEvents[m_currentFrame]);
 
@@ -167,6 +189,12 @@ void DirectXRenderer::Render() {
 
     mSkyBox->Draw(m_currentFrame, commandList);
 
+    {
+        ID3D12DescriptorHeap* heaps[] = {mImGuiDescriptorHeap.Get()};
+        commandList->SetDescriptorHeaps(1, heaps);
+        ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
+    }
+
     D3D12_RESOURCE_BARRIER barrierAfter;
     barrierAfter.Transition.pResource = mRenderTargets[m_currentFrame].Get();
     barrierAfter.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -196,6 +224,15 @@ void DirectXRenderer::Render() {
     endTime = std::chrono::high_resolution_clock::now();
     deltaTimeMS = std::chrono::duration<float, std::chrono::milliseconds::period>(endTime - startTime).count();
     startTime = endTime;
+
+#ifdef _DEBUG
+    FPS_METRICS.second.first += 1;             // plus one frame
+    FPS_METRICS.second.second += deltaTimeMS;  // plus the time spent to draw the frame
+    if (FPS_METRICS.second.second >= 1000u) {  // how many frames have we drawn within ~1sec
+        FPS_METRICS.first = FPS_METRICS.second.second * FPS_METRICS.second.first / 1000.0f;
+        FPS_METRICS.second = std::pair<uint32_t, float>{0u, 0.0f}; // actual FPS
+    }
+#endif
 }
 
 bool DirectXRenderer::Run() {
@@ -273,7 +310,7 @@ void DirectXRenderer::SetupRenderTargets() {
 
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         D3D12_RENDER_TARGET_VIEW_DESC viewDesc;
-        viewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+        viewDesc.Format = constants::RENDER_TARGET_FORMAT;
         viewDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
         viewDesc.Texture2D.MipSlice = 0;
         viewDesc.Texture2D.PlaneSlice = 0;
@@ -394,6 +431,8 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
 
     mSkyBox = std::make_unique<SkyBox>(mDevice.Get(), mCommandQueue.Get(), uploadCommandList.Get(), "skybox.dds");
 
+    SetupImGui();
+
     uploadCommandList->Close();
 
     // Execute the upload and finish the command list
@@ -413,6 +452,36 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     uploadCommandAllocator->Reset();
 
     CloseHandle(waitEvent);
+}
+
+void DirectXRenderer::SetupImGui() {
+    D3D12_DESCRIPTOR_HEAP_DESC heapDesc = {};
+    heapDesc.NumDescriptors = 100;  // 100 descriptors should be enough
+    heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    if (FAILED(mDevice->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&mImGuiDescriptorHeap)))) {
+        log_err("Couldn't allocate gpu heap memory");
+    }
+
+    static utils::DescriptorHeapAllocator _ImGuiDescriptorAlloc(mDevice.Get(), mImGuiDescriptorHeap.Get());
+
+    ImGui_ImplDX12_InitInfo init_info = {};
+    init_info.Device = mDevice.Get();
+    init_info.CommandQueue = mCommandQueue.Get();
+    init_info.NumFramesInFlight = constants::MAX_FRAMES_IN_FLIGHT;
+    init_info.RTVFormat = constants::RENDER_TARGET_FORMAT;
+    init_info.DSVFormat = constants::DEPTH_FORMAT;
+    // we provide callbacks for allocating SRV descriptors (for textures)
+    init_info.SrvDescriptorHeap = mImGuiDescriptorHeap.Get();
+    init_info.SrvDescriptorAllocFn = [](ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE* out_cpu_handle,
+                                        D3D12_GPU_DESCRIPTOR_HANDLE* out_gpu_handle) {
+        return _ImGuiDescriptorAlloc.Alloc(out_cpu_handle, out_gpu_handle);
+    };
+    init_info.SrvDescriptorFreeFn = [](ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle,
+                                       D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle) {
+        return _ImGuiDescriptorAlloc.Free(cpu_handle, gpu_handle);
+    };
+    ImGui_ImplDX12_Init(&init_info);
 }
 
 void DirectXRenderer::CreateMeshBuffers(ID3D12GraphicsCommandList* uploadCommandList) {

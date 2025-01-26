@@ -87,8 +87,6 @@ class MD5Loader {
         std::vector<uint32_t> indices;
         std::vector<Weight> weights;
 
-        std::vector<XMFLOAT3> positions;
-
         Microsoft::WRL::ComPtr<ID3D12Resource> verticesBuffer{};
         Microsoft::WRL::ComPtr<ID3D12Resource> indicesBuffer{};
         D3D12_VERTEX_BUFFER_VIEW verticesBufferView;
@@ -113,7 +111,13 @@ public:
 private:
     bool LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* uploadCommandList, const std::string& filename);
     bool LoadMD5Anim(const std::string& filename);
+    void updateAnimationChunk(std::size_t subsetId, std::size_t indexFrom, std::size_t indexTo);
+    void calculateInterpolatedSkeleton(std::size_t animationID, std::size_t frame0, std::size_t frame1, float interpolation,
+                                       std::size_t indexFrom, std::size_t indexTo);
 
 private:
     Model3D mMD5Model;
+    // base intermediate animation as interpolation between neighbor frames animations
+    // we keep it in memory to avoid allocations for each frame update
+    std::vector<Joint> mInterpolatedSkeleton;
 };

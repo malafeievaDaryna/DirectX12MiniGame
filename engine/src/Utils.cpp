@@ -33,6 +33,41 @@ DirectX::XMMATRIX extractRotationMatrix(const DirectX::XMMATRIX& input) {
     return XMLoadFloat4x4(&rotationOnly);
 }
 
+DescriptorHeapAllocator::DescriptorHeapAllocator(ID3D12Device* device, ID3D12DescriptorHeap* bigBaseHeap) {
+    assert(bigBaseHeap && device);
+    mHeap = bigBaseHeap;
+    D3D12_DESCRIPTOR_HEAP_DESC desc = mHeap->GetDesc();
+    mHeapType = desc.Type;
+    mHeapStartCpu = mHeap->GetCPUDescriptorHandleForHeapStart();
+    mHeapStartGpu = mHeap->GetGPUDescriptorHandleForHeapStart();
+    mHeapHandleIncrement = device->GetDescriptorHandleIncrementSize(mHeapType);
+    mFreeIndices.reserve((int)desc.NumDescriptors);
+    for (int32_t n = desc.NumDescriptors; n > 0; n--)
+        mFreeIndices.push_back(n);
+}
+
+void DescriptorHeapAllocator::Destroy() {
+    mHeap = nullptr;
+    mFreeIndices.clear();
+}
+
+void DescriptorHeapAllocator::Alloc(D3D12_CPU_DESCRIPTOR_HANDLE* out_cpu_desc_handle,
+                                    D3D12_GPU_DESCRIPTOR_HANDLE* out_gpu_desc_handle) {
+    assert(!mFreeIndices.empty());
+    int32_t idx = mFreeIndices.back();
+    mFreeIndices.pop_back();
+    out_cpu_desc_handle->ptr = mHeapStartCpu.ptr + (idx * mHeapHandleIncrement);
+    out_gpu_desc_handle->ptr = mHeapStartGpu.ptr + (idx * mHeapHandleIncrement);
+}
+
+void DescriptorHeapAllocator::Free(D3D12_CPU_DESCRIPTOR_HANDLE out_cpu_desc_handle,
+                                   D3D12_GPU_DESCRIPTOR_HANDLE out_gpu_desc_handle) {
+    int32_t cpu_idx = (int32_t)((out_cpu_desc_handle.ptr - mHeapStartCpu.ptr) / mHeapHandleIncrement);
+    int32_t gpu_idx = (int32_t)((out_gpu_desc_handle.ptr - mHeapStartGpu.ptr) / mHeapHandleIncrement);
+    assert(cpu_idx == gpu_idx);
+    mFreeIndices.push_back(cpu_idx);
+}
+
 Texture2DResource CreateTexture(ID3D12Device* device, ID3D12GraphicsCommandList* uploadCommandList,
                                 const std::string& textureFileName) {
     assert(uploadCommandList && device && !textureFileName.empty());
