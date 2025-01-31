@@ -6,257 +6,271 @@
 #include "d3dx12.h"
 
 MD5Loader::MD5Loader(ID3D12Device* device, ID3D12GraphicsCommandList* uploadCommandList, const std::string& md5ModelFileName,
-                     const std::string& md5AnimFileName) {
+                     const std::vector<std::string>& md5AnimFileNames) {
     assert(device && uploadCommandList);
     LoadMD5Model(device, uploadCommandList, md5ModelFileName);
-    LoadMD5Anim(md5AnimFileName);
+    LoadMD5Anim(md5AnimFileNames);
 }
 
-bool MD5Loader::LoadMD5Anim(const std::string& filename) {
-    ModelAnimation tempAnim;  // Temp animation to later store in our model's animation array
+bool MD5Loader::LoadMD5Anim(const std::vector<std::string>& filenames) {
+    bool result = true;
+    for (const auto& filename : filenames) {
+        ModelAnimation tempAnim;  // Temp animation to later store in our model's animation array
 
-    std::ifstream fileIn(filename.c_str());  // Open file
+        std::ifstream fileIn(filename.c_str());  // Open file
 
-    std::string checkString;  // Stores the next string from our file
+        std::string checkString;  // Stores the next string from our file
 
-    if (fileIn) {
-        while (fileIn)  // Loop until the end of the file is reached
-        {
-            fileIn >> checkString;  // Get next string from file
-
-            if (checkString == "MD5Version")  // Get MD5 version (this function supports version 10)
+        if (fileIn) {
+            while (fileIn)  // Loop until the end of the file is reached
             {
-                fileIn >> checkString;
-            } else if (checkString == "commandline") {
-                std::getline(fileIn, checkString);  // Ignore the rest of this line
-            } else if (checkString == "numFrames") {
-                fileIn >> tempAnim.numFrames;  // Store number of frames in this animation
-            } else if (checkString == "numJoints") {
-                fileIn >> tempAnim.numJoints;  // Store number of joints (must match .md5mesh)
-            } else if (checkString == "frameRate") {
-                fileIn >> tempAnim.frameRate;  // Store animation's frame rate (frames per second)
-            } else if (checkString == "numAnimatedComponents") {
-                fileIn >> tempAnim.numAnimatedComponents;  // Number of components in each frame section
-            } else if (checkString == "hierarchy") {
-                fileIn >> checkString;  // Skip opening bracket "{"
+                fileIn >> checkString;  // Get next string from file
 
-                for (int i = 0; i < tempAnim.numJoints; i++)  // Load in each joint
+                if (checkString == "MD5Version")  // Get MD5 version (this function supports version 10)
                 {
-                    AnimJointInfo tempJoint;
+                    fileIn >> checkString;
+                } else if (checkString == "commandline") {
+                    std::getline(fileIn, checkString);  // Ignore the rest of this line
+                } else if (checkString == "numFrames") {
+                    fileIn >> tempAnim.numFrames;  // Store number of frames in this animation
+                } else if (checkString == "numJoints") {
+                    fileIn >> tempAnim.numJoints;  // Store number of joints (must match .md5mesh)
+                } else if (checkString == "frameRate") {
+                    fileIn >> tempAnim.frameRate;  // Store animation's frame rate (frames per second)
+                } else if (checkString == "numAnimatedComponents") {
+                    fileIn >> tempAnim.numAnimatedComponents;  // Number of components in each frame section
+                } else if (checkString == "hierarchy") {
+                    fileIn >> checkString;  // Skip opening bracket "{"
 
-                    fileIn >> tempJoint.name;  // Get joints name
-                    // Sometimes the names might contain spaces. If that is the case, we need to continue
-                    // to read the name until we get to the closing " (quotation marks)
-                    if (tempJoint.name[tempJoint.name.size() - 1] != '"') {
-                        char checkChar;
-                        bool jointNameFound = false;
-                        while (!jointNameFound) {
-                            checkChar = fileIn.get();
+                    for (int i = 0; i < tempAnim.numJoints; i++)  // Load in each joint
+                    {
+                        AnimJointInfo tempJoint;
 
-                            if (checkChar == '"')
-                                jointNameFound = true;
+                        fileIn >> tempJoint.name;  // Get joints name
+                        // Sometimes the names might contain spaces. If that is the case, we need to continue
+                        // to read the name until we get to the closing " (quotation marks)
+                        if (tempJoint.name[tempJoint.name.size() - 1] != '"') {
+                            char checkChar;
+                            bool jointNameFound = false;
+                            while (!jointNameFound) {
+                                checkChar = fileIn.get();
 
-                            tempJoint.name += checkChar;
-                        }
-                    }
+                                if (checkChar == '"')
+                                    jointNameFound = true;
 
-                    // Remove the quotation marks from joints name
-                    tempJoint.name.erase(0, 1);
-                    tempJoint.name.erase(tempJoint.name.size() - 1, 1);
-
-                    fileIn >> tempJoint.parentID;    // Get joints parent ID
-                    fileIn >> tempJoint.flags;       // Get flags
-                    fileIn >> tempJoint.startIndex;  // Get joints start index
-
-                    // Make sure the joint exists in the model, and the parent ID's match up
-                    // because the bind pose (md5mesh) joint hierarchy and the animations (md5anim)
-                    // joint hierarchy must match up
-                    bool jointMatchFound = false;
-                    tempAnim.jointInfo.reserve(mMD5Model.numJoints);
-                    for (int k = 0; k < mMD5Model.numJoints; k++) {
-                        if (mMD5Model.joints[k].name == tempJoint.name) {
-                            if (mMD5Model.joints[k].parentID == tempJoint.parentID) {
-                                jointMatchFound = true;
-                                tempAnim.jointInfo.push_back(tempJoint);
+                                tempJoint.name += checkChar;
                             }
                         }
+
+                        // Remove the quotation marks from joints name
+                        tempJoint.name.erase(0, 1);
+                        tempJoint.name.erase(tempJoint.name.size() - 1, 1);
+
+                        fileIn >> tempJoint.parentID;    // Get joints parent ID
+                        fileIn >> tempJoint.flags;       // Get flags
+                        fileIn >> tempJoint.startIndex;  // Get joints start index
+
+                        // Make sure the joint exists in the model, and the parent ID's match up
+                        // because the bind pose (md5mesh) joint hierarchy and the animations (md5anim)
+                        // joint hierarchy must match up
+                        bool jointMatchFound = false;
+                        tempAnim.jointInfo.reserve(mMD5Model.numJoints);
+                        for (int k = 0; k < mMD5Model.numJoints; k++) {
+                            if (mMD5Model.joints[k].name == tempJoint.name) {
+                                if (mMD5Model.joints[k].parentID == tempJoint.parentID) {
+                                    jointMatchFound = true;
+                                    tempAnim.jointInfo.push_back(tempJoint);
+                                }
+                            }
+                        }
+                        if (!jointMatchFound)  // If the skeleton system does not match up, return false
+                            return false;      // You might want to add an error message here
+
+                        std::getline(fileIn, checkString);  // Skip rest of this line
                     }
-                    if (!jointMatchFound)  // If the skeleton system does not match up, return false
-                        return false;      // You might want to add an error message here
+                } else if (checkString == "bounds")  // Load in the AABB for each animation
+                {
+                    fileIn >> checkString;  // Skip opening bracket "{"
 
-                    std::getline(fileIn, checkString);  // Skip rest of this line
-                }
-            } else if (checkString == "bounds")  // Load in the AABB for each animation
-            {
-                fileIn >> checkString;  // Skip opening bracket "{"
+                    tempAnim.frameBounds.reserve(tempAnim.numFrames);
+                    for (int i = 0; i < tempAnim.numFrames; i++) {
+                        BoundingBox tempBB;
 
-                tempAnim.frameBounds.reserve(tempAnim.numFrames);
-                for (int i = 0; i < tempAnim.numFrames; i++) {
-                    BoundingBox tempBB;
+                        fileIn >> checkString;  // Skip "("
+                        fileIn >> tempBB.min.x >> tempBB.min.z >> tempBB.min.y;
+                        fileIn >> checkString >> checkString;  // Skip ") ("
+                        fileIn >> tempBB.max.x >> tempBB.max.z >> tempBB.max.y;
+                        fileIn >> checkString;  // Skip ")"
 
-                    fileIn >> checkString;  // Skip "("
-                    fileIn >> tempBB.min.x >> tempBB.min.z >> tempBB.min.y;
-                    fileIn >> checkString >> checkString;  // Skip ") ("
-                    fileIn >> tempBB.max.x >> tempBB.max.z >> tempBB.max.y;
-                    fileIn >> checkString;  // Skip ")"
+                        tempAnim.frameBounds.push_back(tempBB);
+                    }
+                } else if (checkString == "baseframe")  // This is the default position for the animation
+                {                                       // All frames will build their skeletons off this
+                    fileIn >> checkString;              // Skip opening bracket "{"
 
-                    tempAnim.frameBounds.push_back(tempBB);
-                }
-            } else if (checkString == "baseframe")  // This is the default position for the animation
-            {                                       // All frames will build their skeletons off this
-                fileIn >> checkString;              // Skip opening bracket "{"
+                    tempAnim.baseFrameJoints.reserve(tempAnim.numJoints);
+                    for (int i = 0; i < tempAnim.numJoints; i++) {
+                        Joint tempBFJ;
 
-                tempAnim.baseFrameJoints.reserve(tempAnim.numJoints);
-                for (int i = 0; i < tempAnim.numJoints; i++) {
-                    Joint tempBFJ;
+                        fileIn >> checkString;  // Skip "("
+                        fileIn >> tempBFJ.pos.x >> tempBFJ.pos.z >> tempBFJ.pos.y;
+                        fileIn >> checkString >> checkString;  // Skip ") ("
+                        fileIn >> tempBFJ.orientation.x >> tempBFJ.orientation.z >> tempBFJ.orientation.y;
+                        fileIn >> checkString;  // Skip ")"
 
-                    fileIn >> checkString;  // Skip "("
-                    fileIn >> tempBFJ.pos.x >> tempBFJ.pos.z >> tempBFJ.pos.y;
-                    fileIn >> checkString >> checkString;  // Skip ") ("
-                    fileIn >> tempBFJ.orientation.x >> tempBFJ.orientation.z >> tempBFJ.orientation.y;
-                    fileIn >> checkString;  // Skip ")"
+                        tempAnim.baseFrameJoints.push_back(tempBFJ);
+                    }
+                } else if (checkString ==
+                           "frame")  // Load in each frames skeleton (the parts of each joint that changed from the base frame)
+                {
+                    FrameData tempFrame;
 
-                    tempAnim.baseFrameJoints.push_back(tempBFJ);
-                }
-            } else if (checkString ==
-                       "frame")  // Load in each frames skeleton (the parts of each joint that changed from the base frame)
-            {
-                FrameData tempFrame;
+                    fileIn >> tempFrame.frameID;  // Get the frame ID
 
-                fileIn >> tempFrame.frameID;  // Get the frame ID
+                    fileIn >> checkString;  // Skip opening bracket "{"
 
-                fileIn >> checkString;  // Skip opening bracket "{"
+                    tempFrame.frameData.reserve(tempAnim.numAnimatedComponents);
+                    for (int i = 0; i < tempAnim.numAnimatedComponents; i++) {
+                        float tempData;
+                        fileIn >> tempData;  // Get the data
 
-                tempFrame.frameData.reserve(tempAnim.numAnimatedComponents);
-                for (int i = 0; i < tempAnim.numAnimatedComponents; i++) {
-                    float tempData;
-                    fileIn >> tempData;  // Get the data
-
-                    tempFrame.frameData.push_back(tempData);
-                }
-
-                tempAnim.frameData.push_back(tempFrame);
-
-                ///*** build the frame skeleton ***///
-                std::vector<Joint> tempSkeleton;
-
-                tempSkeleton.reserve(tempAnim.jointInfo.size());
-                for (int i = 0; i < tempAnim.jointInfo.size(); i++) {
-                    int k = 0;  // Keep track of position in frameData array
-
-                    // Start the frames joint with the base frame's joint
-                    Joint tempFrameJoint = tempAnim.baseFrameJoints[i];
-
-                    tempFrameJoint.parentID = tempAnim.jointInfo[i].parentID;
-
-                    // Notice how I have been flipping y and z. this is because some modeling programs such as
-                    // 3ds max (which is what I use) use a right handed coordinate system. Because of this, we
-                    // need to flip the y and z axes. If your having problems loading some models, it's possible
-                    // the model was created in a left hand coordinate system. in that case, just reflip all the
-                    // y and z axes in our md5 mesh and anim loader.
-                    if (tempAnim.jointInfo[i].flags & 1)  // pos.x	( 000001 )
-                        tempFrameJoint.pos.x = tempFrame.frameData[tempAnim.jointInfo[i].startIndex + k++];
-
-                    if (tempAnim.jointInfo[i].flags & 2)  // pos.y	( 000010 )
-                        tempFrameJoint.pos.z = tempFrame.frameData[tempAnim.jointInfo[i].startIndex + k++];
-
-                    if (tempAnim.jointInfo[i].flags & 4)  // pos.z	( 000100 )
-                        tempFrameJoint.pos.y = tempFrame.frameData[tempAnim.jointInfo[i].startIndex + k++];
-
-                    if (tempAnim.jointInfo[i].flags & 8)  // orientation.x	( 001000 )
-                        tempFrameJoint.orientation.x = tempFrame.frameData[tempAnim.jointInfo[i].startIndex + k++];
-
-                    if (tempAnim.jointInfo[i].flags & 16)  // orientation.y	( 010000 )
-                        tempFrameJoint.orientation.z = tempFrame.frameData[tempAnim.jointInfo[i].startIndex + k++];
-
-                    if (tempAnim.jointInfo[i].flags & 32)  // orientation.z	( 100000 )
-                        tempFrameJoint.orientation.y = tempFrame.frameData[tempAnim.jointInfo[i].startIndex + k++];
-
-                    // Compute the quaternions w
-                    float t = 1.0f - (tempFrameJoint.orientation.x * tempFrameJoint.orientation.x) -
-                              (tempFrameJoint.orientation.y * tempFrameJoint.orientation.y) -
-                              (tempFrameJoint.orientation.z * tempFrameJoint.orientation.z);
-                    if (t < 0.0f) {
-                        tempFrameJoint.orientation.w = 0.0f;
-                    } else {
-                        tempFrameJoint.orientation.w = -sqrtf(t);
+                        tempFrame.frameData.push_back(tempData);
                     }
 
-                    // Now, if the upper arm of your skeleton moves, you need to also move the lower part of your arm, and then
-                    // the hands, and then finally the fingers (possibly weapon or tool too) This is where joint hierarchy comes
-                    // in. We start at the top of the hierarchy, and move down to each joints child, rotating and translating them
-                    // based on their parents rotation and translation. We can assume that by the time we get to the child, the
-                    // parent has already been rotated and transformed based of it's parent. We can assume this because the child
-                    // should never come before the parent in the files we loaded in.
-                    if (tempFrameJoint.parentID >= 0) {
-                        Joint parentJoint = tempSkeleton[tempFrameJoint.parentID];
+                    tempAnim.frameData.push_back(tempFrame);
 
-                        // Turn the XMFLOAT3 and 4's into vectors for easier computation
-                        XMVECTOR parentJointOrientation = XMVectorSet(parentJoint.orientation.x, parentJoint.orientation.y,
-                                                                      parentJoint.orientation.z, parentJoint.orientation.w);
-                        XMVECTOR tempJointPos =
-                            XMVectorSet(tempFrameJoint.pos.x, tempFrameJoint.pos.y, tempFrameJoint.pos.z, 0.0f);
-                        XMVECTOR parentOrientationConjugate = XMVectorSet(-parentJoint.orientation.x, -parentJoint.orientation.y,
-                                                                          -parentJoint.orientation.z, parentJoint.orientation.w);
+                    ///*** build the frame skeleton ***///
+                    std::vector<Joint> tempSkeleton;
 
-                        // Calculate current joints position relative to its parents position
-                        XMFLOAT3 rotatedPos;
-                        XMStoreFloat3(&rotatedPos,
-                                      XMQuaternionMultiply(XMQuaternionMultiply(parentJointOrientation, tempJointPos),
-                                                           parentOrientationConjugate));
+                    tempSkeleton.reserve(tempAnim.jointInfo.size());
+                    for (int i = 0; i < tempAnim.jointInfo.size(); i++) {
+                        int k = 0;  // Keep track of position in frameData array
 
-                        // Translate the joint to model space by adding the parent joint's pos to it
-                        tempFrameJoint.pos.x = rotatedPos.x + parentJoint.pos.x;
-                        tempFrameJoint.pos.y = rotatedPos.y + parentJoint.pos.y;
-                        tempFrameJoint.pos.z = rotatedPos.z + parentJoint.pos.z;
+                        // Start the frames joint with the base frame's joint
+                        Joint tempFrameJoint = tempAnim.baseFrameJoints[i];
 
-                        // Currently the joint is oriented in its parent joints space, we now need to orient it in
-                        // model space by multiplying the two orientations together (parentOrientation * childOrientation) <- In
-                        // that order
-                        XMVECTOR tempJointOrient = XMVectorSet(tempFrameJoint.orientation.x, tempFrameJoint.orientation.y,
-                                                               tempFrameJoint.orientation.z, tempFrameJoint.orientation.w);
-                        tempJointOrient = XMQuaternionMultiply(parentJointOrientation, tempJointOrient);
+                        tempFrameJoint.parentID = tempAnim.jointInfo[i].parentID;
 
-                        // Normalize the orienation quaternion
-                        tempJointOrient = XMQuaternionNormalize(tempJointOrient);
+                        // Notice how I have been flipping y and z. this is because some modeling programs such as
+                        // 3ds max (which is what I use) use a right handed coordinate system. Because of this, we
+                        // need to flip the y and z axes. If your having problems loading some models, it's possible
+                        // the model was created in a left hand coordinate system. in that case, just reflip all the
+                        // y and z axes in our md5 mesh and anim loader.
+                        if (tempAnim.jointInfo[i].flags & 1)  // pos.x	( 000001 )
+                            tempFrameJoint.pos.x = tempFrame.frameData[tempAnim.jointInfo[i].startIndex + k++];
 
-                        XMStoreFloat4(&tempFrameJoint.orientation, tempJointOrient);
+                        if (tempAnim.jointInfo[i].flags & 2)  // pos.y	( 000010 )
+                            tempFrameJoint.pos.z = tempFrame.frameData[tempAnim.jointInfo[i].startIndex + k++];
+
+                        if (tempAnim.jointInfo[i].flags & 4)  // pos.z	( 000100 )
+                            tempFrameJoint.pos.y = tempFrame.frameData[tempAnim.jointInfo[i].startIndex + k++];
+
+                        if (tempAnim.jointInfo[i].flags & 8)  // orientation.x	( 001000 )
+                            tempFrameJoint.orientation.x = tempFrame.frameData[tempAnim.jointInfo[i].startIndex + k++];
+
+                        if (tempAnim.jointInfo[i].flags & 16)  // orientation.y	( 010000 )
+                            tempFrameJoint.orientation.z = tempFrame.frameData[tempAnim.jointInfo[i].startIndex + k++];
+
+                        if (tempAnim.jointInfo[i].flags & 32)  // orientation.z	( 100000 )
+                            tempFrameJoint.orientation.y = tempFrame.frameData[tempAnim.jointInfo[i].startIndex + k++];
+
+                        // Compute the quaternions w
+                        float t = 1.0f - (tempFrameJoint.orientation.x * tempFrameJoint.orientation.x) -
+                                  (tempFrameJoint.orientation.y * tempFrameJoint.orientation.y) -
+                                  (tempFrameJoint.orientation.z * tempFrameJoint.orientation.z);
+                        if (t < 0.0f) {
+                            tempFrameJoint.orientation.w = 0.0f;
+                        } else {
+                            tempFrameJoint.orientation.w = -sqrtf(t);
+                        }
+
+                        // Now, if the upper arm of your skeleton moves, you need to also move the lower part of your arm, and
+                        // then the hands, and then finally the fingers (possibly weapon or tool too) This is where joint
+                        // hierarchy comes in. We start at the top of the hierarchy, and move down to each joints child, rotating
+                        // and translating them based on their parents rotation and translation. We can assume that by the time we
+                        // get to the child, the parent has already been rotated and transformed based of it's parent. We can
+                        // assume this because the child should never come before the parent in the files we loaded in.
+                        if (tempFrameJoint.parentID >= 0) {
+                            Joint parentJoint = tempSkeleton[tempFrameJoint.parentID];
+
+                            // Turn the XMFLOAT3 and 4's into vectors for easier computation
+                            XMVECTOR parentJointOrientation = XMVectorSet(parentJoint.orientation.x, parentJoint.orientation.y,
+                                                                          parentJoint.orientation.z, parentJoint.orientation.w);
+                            XMVECTOR tempJointPos =
+                                XMVectorSet(tempFrameJoint.pos.x, tempFrameJoint.pos.y, tempFrameJoint.pos.z, 0.0f);
+                            XMVECTOR parentOrientationConjugate =
+                                XMVectorSet(-parentJoint.orientation.x, -parentJoint.orientation.y, -parentJoint.orientation.z,
+                                            parentJoint.orientation.w);
+
+                            // Calculate current joints position relative to its parents position
+                            XMFLOAT3 rotatedPos;
+                            XMStoreFloat3(&rotatedPos,
+                                          XMQuaternionMultiply(XMQuaternionMultiply(parentJointOrientation, tempJointPos),
+                                                               parentOrientationConjugate));
+
+                            // Translate the joint to model space by adding the parent joint's pos to it
+                            tempFrameJoint.pos.x = rotatedPos.x + parentJoint.pos.x;
+                            tempFrameJoint.pos.y = rotatedPos.y + parentJoint.pos.y;
+                            tempFrameJoint.pos.z = rotatedPos.z + parentJoint.pos.z;
+
+                            // Currently the joint is oriented in its parent joints space, we now need to orient it in
+                            // model space by multiplying the two orientations together (parentOrientation * childOrientation) <-
+                            // In that order
+                            XMVECTOR tempJointOrient = XMVectorSet(tempFrameJoint.orientation.x, tempFrameJoint.orientation.y,
+                                                                   tempFrameJoint.orientation.z, tempFrameJoint.orientation.w);
+                            tempJointOrient = XMQuaternionMultiply(parentJointOrientation, tempJointOrient);
+
+                            // Normalize the orienation quaternion
+                            tempJointOrient = XMQuaternionNormalize(tempJointOrient);
+
+                            XMStoreFloat4(&tempFrameJoint.orientation, tempJointOrient);
+                        }
+
+                        // Store the joint into our temporary frame skeleton
+                        tempSkeleton.push_back(tempFrameJoint);
                     }
 
-                    // Store the joint into our temporary frame skeleton
-                    tempSkeleton.push_back(tempFrameJoint);
+                    // Push back our newly created frame skeleton into the animation's frameSkeleton array
+                    tempAnim.frameSkeleton.push_back(tempSkeleton);
+
+                    fileIn >> checkString;  // Skip closing bracket "}"
                 }
-
-                // Push back our newly created frame skeleton into the animation's frameSkeleton array
-                tempAnim.frameSkeleton.push_back(tempSkeleton);
-
-                fileIn >> checkString;  // Skip closing bracket "}"
             }
+
+            // Calculate and store some usefull animation data
+            tempAnim.frameTime = 1.0f / tempAnim.frameRate;                    // Set the time per frame
+            tempAnim.totalAnimTime = tempAnim.numFrames * tempAnim.frameTime;  // Set the total time the animation takes
+            tempAnim.currAnimTime = 0.0f;                                      // Set the current time to zero
+
+            mMD5Model.animations.push_back(tempAnim);  // Push back the animation into our model object
+        } else                                         // If the file was not loaded
+        {
+            utils::log_err("Couldn't open file");
+            result = false;
+            break;
         }
-
-        // Calculate and store some usefull animation data
-        tempAnim.frameTime = 1.0f / tempAnim.frameRate;                    // Set the time per frame
-        tempAnim.totalAnimTime = tempAnim.numFrames * tempAnim.frameTime;  // Set the total time the animation takes
-        tempAnim.currAnimTime = 0.0f;                                      // Set the current time to zero
-
-        mMD5Model.animations.push_back(tempAnim);  // Push back the animation into our model object
-    } else                                         // If the file was not loaded
-    {
-        utils::log_err("Couldn't open file");
-        return false;
     }
-    return true;
+    return result;
 }
 
-void MD5Loader::UpdateMD5Model(float deltaTimeMS, int animation) {
+void MD5Loader::UpdateMD5Model(float deltaTimeMS, int animation, const std::function<void()>& callBackAnimFinished) {
     if (mMD5Model.animations.size() <= animation) {
         utils::log_err("wrong parameters");
         return;
     }
+
+    if (mLastAnimationID != animation) {
+        mLastAnimationID = animation;
+        mMD5Model.animations[animation].currAnimTime = 0;
+    }
+
     mMD5Model.animations[animation].currAnimTime += deltaTimeMS / 1000.0f;  // Update the current animation time
 
-    if (mMD5Model.animations[animation].currAnimTime >= mMD5Model.animations[animation].totalAnimTime)
-        mMD5Model.animations[animation].currAnimTime = 0.0f;
+    /** Note: do nothing since we have another condition for this case
+     * if (mMD5Model.animations[animation].currAnimTime >= mMD5Model.animations[animation].totalAnimTime) {
+     *
+     * }
+     */
 
     // Which frame are we on
     float currentFrame = mMD5Model.animations[animation].currAnimTime * mMD5Model.animations[animation].frameRate;
@@ -264,8 +278,22 @@ void MD5Loader::UpdateMD5Model(float deltaTimeMS, int animation) {
     int frame1 = frame0 + 1;
 
     // Make sure we don't go over the number of frames
-    if (frame0 == mMD5Model.animations[animation].numFrames - 1)
-        frame1 = 0;
+    if (frame0 >= mMD5Model.animations[animation].numFrames - 1) {
+        mMD5Model.animations[animation].currAnimTime = 0;
+        currentFrame = 0;
+        frame0 = 0;
+        frame1 = 1;
+
+        const auto& boundingBoxFirstFrame = mMD5Model.animations[animation].frameBounds[0];
+        const auto& boundingBoxLastFrame =
+            mMD5Model.animations[animation].frameBounds[mMD5Model.animations[animation].numFrames - 1];
+        mPosDiffFirstLastFrames.x = boundingBoxLastFrame.max.x - boundingBoxFirstFrame.max.x;
+        mPosDiffFirstLastFrames.z = boundingBoxLastFrame.max.z - boundingBoxFirstFrame.max.z;
+        mPosDiffFirstLastFrames.y = boundingBoxLastFrame.max.y - boundingBoxFirstFrame.max.y;
+
+        if (callBackAnimFinished)
+            callBackAnimFinished();
+    }
 
     float interpolation =
         currentFrame - frame0;  // Get the remainder (in time) between frame0 and frame1 to use as interpolation factor

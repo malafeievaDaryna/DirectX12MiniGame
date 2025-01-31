@@ -3,6 +3,7 @@
 #include <d3d12.h>
 #include <directxmath.h>
 #include <wrl.h>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -104,13 +105,16 @@ class MD5Loader {
 
 public:
     MD5Loader(ID3D12Device* device, ID3D12GraphicsCommandList* uploadCommandList, const std::string& md5ModelFileName,
-              const std::string& md5AnimFileName);
-    void UpdateMD5Model(float deltaTimeMS, int animation = 0u);
+              const std::vector<std::string>& md5AnimFileNames);
+    void UpdateMD5Model(float deltaTimeMS, int animation = 0u, const std::function<void()>& callBackAnimFinished = nullptr);
     void Draw(ID3D12GraphicsCommandList* commandList);
+    const DirectX::XMFLOAT3& GetPosDiffFirstLastFrames() const {
+        return mPosDiffFirstLastFrames;
+    }
 
 private:
     bool LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* uploadCommandList, const std::string& filename);
-    bool LoadMD5Anim(const std::string& filename);
+    bool LoadMD5Anim(const std::vector<std::string>& filenames);
     void updateAnimationChunk(std::size_t subsetId, std::size_t indexFrom, std::size_t indexTo);
     void calculateInterpolatedSkeleton(std::size_t animationID, std::size_t frame0, std::size_t frame1, float interpolation,
                                        std::size_t indexFrom, std::size_t indexTo);
@@ -120,4 +124,6 @@ private:
     // base intermediate animation as interpolation between neighbor frames animations
     // we keep it in memory to avoid allocations for each frame update
     std::vector<Joint> mInterpolatedSkeleton;
+    int mLastAnimationID{0};
+    DirectX::XMFLOAT3 mPosDiffFirstLastFrames{.0f, .0f, .0f};
 };

@@ -22,6 +22,9 @@ class DirectXRenderer {
         DirectX::XMMATRIX mvp;
     };
 
+    enum class PISTOL_ANIM { IDLE = 0, RELOAD, FIRE, MAX };
+    enum class MONSTER_ANIM { IDLE = 0, RUN, PAIN, MAX };
+
 public:
     DirectXRenderer();
     ~DirectXRenderer();
@@ -73,6 +76,7 @@ private:
 
     // TODO move it from here
     // landscape
+    Microsoft::WRL::ComPtr<ID3D12Resource> mLandScapeConstantBuffers[constants::MAX_FRAMES_IN_FLIGHT];
     Microsoft::WRL::ComPtr<ID3D12Resource> mUploadBuffer{};
     Microsoft::WRL::ComPtr<ID3D12Resource> mVertexBuffer{};
     D3D12_VERTEX_BUFFER_VIEW mVertexBufferView;
@@ -91,4 +95,10 @@ private:
     std::unique_ptr<SkyBox> mSkyBox{};
 
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mImGuiDescriptorHeap;
+
+    PISTOL_ANIM mCurPistolAnim{PISTOL_ANIM::IDLE};
+    MONSTER_ANIM mCurMonsterAnim{MONSTER_ANIM::RUN};
+    std::unordered_map<PISTOL_ANIM, std::function<void()>> mPistolAnimationsActions;
+    std::unordered_map<MONSTER_ANIM, std::function<void()>> mMonsterAnimationsActions;
+    DirectX::XMFLOAT3 mMonsterBasePos{.0f, .0f, .0f};
 };

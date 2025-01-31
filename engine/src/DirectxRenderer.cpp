@@ -117,8 +117,10 @@ void DirectXRenderer::Render() {
     ImGui::SetWindowFontScale(1.3);
     ImGui::SetWindowSize(ImVec2(0, 0));
     ImGui::BeginChild("First", ImVec2(200, 30));
-    ImGui::Text("FPS %f", FPS_METRICS.first);
+    ImGui::Text("FPS %.2f", FPS_METRICS.first);
     ImGui::EndChild();
+    float f = 0.5;
+    ImGui::SliderFloat("float", &f, 0.0f, 1.0f);
     ImGui::End();
 #endif
     ImGui::Render();
@@ -152,11 +154,14 @@ void DirectXRenderer::Render() {
 
     commandList->ResourceBarrier(1, &barrierBefore);
 
-    UpdateConstantBuffer();
-    md5PistolModel->UpdateMD5Model(deltaTimeMS, 0);
-    md5MonsterModel->UpdateMD5Model(deltaTimeMS, 0);
+    assert(mPistolAnimationsActions.find(mCurPistolAnim) != mPistolAnimationsActions.end());
+    md5PistolModel->UpdateMD5Model(deltaTimeMS, static_cast<int>(mCurPistolAnim), mPistolAnimationsActions[mCurPistolAnim]);
+    assert(mMonsterAnimationsActions.find(mCurMonsterAnim) != mMonsterAnimationsActions.end());
+    md5MonsterModel->UpdateMD5Model(deltaTimeMS, static_cast<int>(mCurMonsterAnim), mMonsterAnimationsActions[mCurMonsterAnim]);
 
     mSkyBox->Update(m_currentFrame, mCamera->viewProjMat());
+
+    UpdateConstantBuffer();
 
     static const float clearColor[] = {1.0f, 1.0f, 1.0f, 1.0f};
 
@@ -181,6 +186,8 @@ void DirectXRenderer::Render() {
         // Set slot 0 of our root signature to point to our descriptor heap with
         // the texture SRV
         commandList->SetGraphicsRootDescriptorTable(0, mLandscapeTexture.srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+
+        commandList->SetGraphicsRootConstantBufferView(1, mLandScapeConstantBuffers[m_currentFrame]->GetGPUVirtualAddress());
 
         commandList->IASetVertexBuffers(0, 1, &mVertexBufferView);
         commandList->IASetIndexBuffer(&mIndexBufferView);
@@ -230,7 +237,7 @@ void DirectXRenderer::Render() {
     FPS_METRICS.second.second += deltaTimeMS;  // plus the time spent to draw the frame
     if (FPS_METRICS.second.second >= 1000u) {  // how many frames have we drawn within ~1sec
         FPS_METRICS.first = FPS_METRICS.second.second * FPS_METRICS.second.first / 1000.0f;
-        FPS_METRICS.second = std::pair<uint32_t, float>{0u, 0.0f}; // actual FPS
+        FPS_METRICS.second = std::pair<uint32_t, float>{0u, 0.0f};  // actual FPS
     }
 #endif
 }
@@ -247,6 +254,10 @@ bool DirectXRenderer::Run() {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
+    }
+
+    if (mMouse->GetState().leftButton) {
+        mCurPistolAnim = PISTOL_ANIM::FIRE;
     }
 
     auto kb = mKeyboard->GetState();
@@ -390,7 +401,7 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     perspective.fovy = 45.0f;
     perspective.aspect = aspectRatio;
     perspective._near = 0.01f;
-    perspective._far = 1000.0f;
+    perspective._far = 10000.0f;
     mCamera = std::make_unique<Camera>(perspective, DirectX::XMFLOAT4{0, 50, -500, 1}, DirectX::XMFLOAT4{0, 50, 0, 0});
 
     CreateDeviceAndSwapChain();
@@ -424,10 +435,36 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     mLandscapeTexture = utils::CreateTexture(mDevice.Get(), uploadCommandList.Get(), "landscape.png");
     CreateMeshBuffers(uploadCommandList.Get());
 
-    md5PistolModel = std::make_unique<MD5Loader>(mDevice.Get(), uploadCommandList.Get(), "models/pistol.md5mesh",
-                                                 "models/pistol_fire.md5anim");
-    md5MonsterModel =
-        std::make_unique<MD5Loader>(mDevice.Get(), uploadCommandList.Get(), "models/pinky.md5mesh", "models/pinky_idle.md5anim");
+    mPistolAnimationsActions[PISTOL_ANIM::IDLE] = nullptr;
+    mPistolAnimationsActions[PISTOL_ANIM::RELOAD] = [this]() { mCurPistolAnim = PISTOL_ANIM::IDLE; };
+    mPistolAnimationsActions[PISTOL_ANIM::FIRE] = [this]() {
+        mCurPistolAnim = PISTOL_ANIM::IDLE;
+        mCurMonsterAnim = MONSTER_ANIM::PAIN;
+    };
+
+    std::unordered_map<PISTOL_ANIM, std::string> pistolAnimations = {{PISTOL_ANIM::IDLE, "models/pistol_idle.md5anim"},
+                                                                     {PISTOL_ANIM::RELOAD, "models/pistol_reload.md5anim"},
+                                                                     {PISTOL_ANIM::FIRE, "models/pistol_fire.md5anim"}};
+    md5PistolModel = std::make_unique<MD5Loader>(
+        mDevice.Get(), uploadCommandList.Get(), "models/pistol.md5mesh",
+        std::vector<std::string>{pistolAnimations[PISTOL_ANIM::IDLE], pistolAnimations[PISTOL_ANIM::RELOAD],
+                                 pistolAnimations[PISTOL_ANIM::FIRE]});
+
+    mMonsterAnimationsActions[MONSTER_ANIM::IDLE] = nullptr;
+    mMonsterAnimationsActions[MONSTER_ANIM::PAIN] = [this]() { mCurMonsterAnim = MONSTER_ANIM::IDLE; };
+    mMonsterAnimationsActions[MONSTER_ANIM::RUN] = [this]() {
+        auto& animationPosShift = md5MonsterModel->GetPosDiffFirstLastFrames();
+        mMonsterBasePos.x += animationPosShift.x;
+        mMonsterBasePos.y += animationPosShift.y;
+        mMonsterBasePos.z += animationPosShift.z;
+    };
+    std::unordered_map<MONSTER_ANIM, std::string> monsterAnimations = {{MONSTER_ANIM::IDLE, "models/pinky_stand.md5anim"},
+                                                                       {MONSTER_ANIM::RUN, "models/pinky_run.md5anim"},
+                                                                       {MONSTER_ANIM::PAIN, "models/pinky_pain.md5anim"}};
+    md5MonsterModel = std::make_unique<MD5Loader>(
+        mDevice.Get(), uploadCommandList.Get(), "models/pinky.md5mesh",
+        std::vector<std::string>{monsterAnimations[MONSTER_ANIM::IDLE], monsterAnimations[MONSTER_ANIM::RUN],
+                                 monsterAnimations[MONSTER_ANIM::PAIN]});
 
     mSkyBox = std::make_unique<SkyBox>(mDevice.Get(), mCommandQueue.Get(), uploadCommandList.Get(), "skybox.dds");
 
@@ -642,6 +679,9 @@ void DirectXRenderer::CreateConstantBuffer() {
         mDevice->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &constantBufferDesc,
                                          D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&mMonsterConstantBuffers[i]));
 
+        mDevice->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &constantBufferDesc,
+                                         D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&mLandScapeConstantBuffers[i]));
+
         // we set identity matrix as mvp for models
         void* p;
         mPistolConstantBuffers[i]->Map(0, nullptr, &p);
@@ -651,18 +691,23 @@ void DirectXRenderer::CreateConstantBuffer() {
         mMonsterConstantBuffers[i]->Map(0, nullptr, &p);
         memcpy(p, &mConstantBufferData, sizeof(mConstantBufferData));
         mMonsterConstantBuffers[i]->Unmap(0, nullptr);
+
+        mLandScapeConstantBuffers[i]->Map(0, nullptr, &p);
+        memcpy(p, &mConstantBufferData, sizeof(mConstantBufferData));
+        mLandScapeConstantBuffers[i]->Unmap(0, nullptr);
     }
 }
 
 void DirectXRenderer::UpdateConstantBuffer() {
+    // models have different dirrection
+    const static float angle = -90.0f;
+    const static DirectX::XMVECTOR rotationAxis = DirectX::XMVectorSet(0, 1, 0, 0);
+    const static auto rotation = XMMatrixRotationAxis(rotationAxis, DirectX::XMConvertToRadians(angle));
+
     // pistol mvp matrix
     {
-        const static float angle = -90.0f;
-        const static DirectX::XMVECTOR rotationAxis = DirectX::XMVectorSet(0, 1, 0, 0);
-        const static auto rotation = XMMatrixRotationAxis(rotationAxis, DirectX::XMConvertToRadians(angle));
-
         // some offset from camera to our hand&pistol
-        static constexpr float offsetFromCamera = 10.0f;
+        static constexpr float offsetFromCamera = 7.0f;
         const auto translation = DirectX::XMMatrixTranslation(0, 0, offsetFromCamera);
         DirectX::XMMATRIX model = DirectX::XMMatrixMultiply(rotation, translation);
 
@@ -679,11 +724,10 @@ void DirectXRenderer::UpdateConstantBuffer() {
 
     // monster mvp matrix
     {
-        // TODO currently the monster is not moving
-        DirectX::XMMATRIX model = DirectX::XMMatrixIdentity();
+        const auto translation = DirectX::XMMatrixTranslation(mMonsterBasePos.x, mMonsterBasePos.y, mMonsterBasePos.z);
+        DirectX::XMMATRIX model = DirectX::XMMatrixMultiply(translation, rotation);
 
         const auto& viewProj = mCamera->viewProjMat();
-        // we ignore view matrix because our hand&pistol must follow camera rotation
         DirectX::XMMATRIX modelView = DirectX::XMMatrixMultiply(model, viewProj.view);
         mConstantBufferData.mvp = DirectX::XMMatrixMultiply(modelView, viewProj.proj);
 
@@ -691,6 +735,18 @@ void DirectXRenderer::UpdateConstantBuffer() {
         mMonsterConstantBuffers[m_currentFrame]->Map(0, nullptr, &data);
         memcpy(data, &mConstantBufferData, sizeof(mConstantBufferData));
         mMonsterConstantBuffers[m_currentFrame]->Unmap(0, nullptr);
+    }
+
+    // landscape mvp matrix
+    {
+        const auto& viewProj = mCamera->viewProjMat();
+        // landscape doesn't have model matrix since it's static object
+        mConstantBufferData.mvp = DirectX::XMMatrixMultiply(viewProj.view, viewProj.proj);
+
+        void* data;
+        mLandScapeConstantBuffers[m_currentFrame]->Map(0, nullptr, &data);
+        memcpy(data, &mConstantBufferData, sizeof(mConstantBufferData));
+        mLandScapeConstantBuffers[m_currentFrame]->Unmap(0, nullptr);
     }
 }
 
