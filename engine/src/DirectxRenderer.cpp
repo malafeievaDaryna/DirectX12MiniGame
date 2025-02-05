@@ -24,6 +24,16 @@ using namespace constants;
 using namespace utils;
 
 namespace {
+
+static constexpr float FAR_PLANE = 10000.0f;
+
+const static DirectX::XMVECTOR _upDir = DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+
+// md5 models have different dirrection we must adjust them
+static constexpr float _md5AngleAdjustment = -90.0f;
+const static XMVECTOR _md5RotAdjustment = XMQuaternionRotationNormal(_upDir, XMConvertToRadians(_md5AngleAdjustment));
+const static XMVECTOR _md5RotAdjustmentConj = XMQuaternionConjugate(_md5RotAdjustment);
+
 struct RenderEnvironment {
     ComPtr<ID3D12Device> device;
     ComPtr<ID3D12CommandQueue> queue;
@@ -401,8 +411,8 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     perspective.fovy = 45.0f;
     perspective.aspect = aspectRatio;
     perspective._near = 0.01f;
-    perspective._far = 10000.0f;
-    mCamera = std::make_unique<Camera>(perspective, DirectX::XMFLOAT4{0, 50, -500, 1}, DirectX::XMFLOAT4{0, 50, 0, 0});
+    perspective._far = FAR_PLANE;
+    mCamera = std::make_unique<Camera>(perspective, DirectX::XMFLOAT4{0, 50, -1800, 0}, DirectX::XMFLOAT4{0, 50, 0, 0});
 
     CreateDeviceAndSwapChain();
 
@@ -453,10 +463,45 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     mMonsterAnimationsActions[MONSTER_ANIM::IDLE] = nullptr;
     mMonsterAnimationsActions[MONSTER_ANIM::PAIN] = [this]() { mCurMonsterAnim = MONSTER_ANIM::IDLE; };
     mMonsterAnimationsActions[MONSTER_ANIM::RUN] = [this]() {
-        auto& animationPosShift = md5MonsterModel->GetPosDiffFirstLastFrames();
-        mMonsterBasePos.x += animationPosShift.x;
-        mMonsterBasePos.y += animationPosShift.y;
-        mMonsterBasePos.z += animationPosShift.z;
+        const XMFLOAT3& animationPosShift = md5MonsterModel->GetPosDiffFirstLastFrames();
+
+        XMVECTOR animationPosShiftVec = XMLoadFloat3(&animationPosShift);
+        XMVECTOR rotAdjustment = XMQuaternionRotationNormal(_upDir, XMConvertToRadians(0.0f));
+        XMVECTOR rotatedPosVec = XMQuaternionMultiply(XMQuaternionMultiply(mQuatMonsterRot, animationPosShiftVec),
+                                                   XMQuaternionConjugate(mQuatMonsterRot));
+        XMFLOAT4 rotatedPos;
+        XMStoreFloat4(&rotatedPos, rotatedPosVec);
+        mMonsterBasePos.x += rotatedPos.x;
+        mMonsterBasePos.y += rotatedPos.y;
+        mMonsterBasePos.z += -rotatedPos.z;
+        // log_debug("mMonsterBasePos ", mMonsterBasePos.x, " ", mMonsterBasePos.y, " ", mMonsterBasePos.z);
+
+        const XMFLOAT4& eye = mCamera->cameraPosition();
+        // eye.y = 0; any way we ignore Y when getting 'angle' below
+        // log_debug("mCamera ", eye.x, " ", eye.y, " ", eye.z);
+        XMVECTOR eyeVec = XMLoadFloat4(&eye);
+        XMVECTOR monsterPosVec = XMLoadFloat3(&mMonsterBasePos);
+        XMVECTOR fromMonsterToCameraVec = XMVector3Normalize(XMVectorSubtract(eyeVec, monsterPosVec));
+        XMFLOAT4 fromMonsterToCameraPos;
+        XMStoreFloat4(&fromMonsterToCameraPos, fromMonsterToCameraVec);
+
+        /**  Note: we can use faster algorithm for monster rotation calculation than XMMatrixLookAtLH
+        auto tempQuat =
+            XMQuaternionRotationMatrix(XMMatrixLookAtLH(monsterPosVec, XMVectorAdd(monsterPosVec, fromMonsterToCamera), _upDir));
+            */
+        XMFLOAT4 newQuat;
+        float angle = atan2f(fromMonsterToCameraPos.x, fromMonsterToCameraPos.z);
+        newQuat.x = 0;
+        newQuat.y = 1.0f * sin(angle / 2.0f);
+        newQuat.z = 0;
+        newQuat.w = -cos(angle / 2.0f);
+        XMVECTOR newQuatVec = XMLoadFloat4(&newQuat);
+
+        newQuatVec = XMQuaternionMultiply(_md5RotAdjustment,
+                                          newQuatVec);  // models directed along x axis, let's align them to positive z axis
+        // we need rotate monster instead scene rotation
+        mQuatMonsterRot = XMQuaternionInverse(newQuatVec);
+        mQuatMonsterRot = XMQuaternionMultiply(mQuatMonsterRot, XMQuaternionRotationNormal(_upDir, XMConvertToRadians(180.0f)));
     };
     std::unordered_map<MONSTER_ANIM, std::string> monsterAnimations = {{MONSTER_ANIM::IDLE, "models/pinky_stand.md5anim"},
                                                                        {MONSTER_ANIM::RUN, "models/pinky_run.md5anim"},
@@ -527,7 +572,7 @@ void DirectXRenderer::CreateMeshBuffers(ID3D12GraphicsCommandList* uploadCommand
         float uv[2];
     };
 
-    constexpr float landscapeScaleFactor = 1000.0f;
+    constexpr float landscapeScaleFactor = FAR_PLANE;
     const Vertex vertices[4] = {{{-1.0f * landscapeScaleFactor, 0.0f, -1.0f * landscapeScaleFactor}, {0, 0}},
                                 {{-1.0f * landscapeScaleFactor, 0.0f, 1.0f * landscapeScaleFactor}, {1, 0}},
                                 {{1.0f * landscapeScaleFactor, 0.0f, 1.0f * landscapeScaleFactor}, {1, 1}},
@@ -699,11 +744,7 @@ void DirectXRenderer::CreateConstantBuffer() {
 }
 
 void DirectXRenderer::UpdateConstantBuffer() {
-    // models have different dirrection
-    const static float angle = -90.0f;
-    const static DirectX::XMVECTOR rotationAxis = DirectX::XMVectorSet(0, 1, 0, 0);
-    const static auto rotation = XMMatrixRotationAxis(rotationAxis, DirectX::XMConvertToRadians(angle));
-
+    static auto rotation = XMMatrixRotationQuaternion(_md5RotAdjustment);
     // pistol mvp matrix
     {
         // some offset from camera to our hand&pistol
@@ -724,8 +765,9 @@ void DirectXRenderer::UpdateConstantBuffer() {
 
     // monster mvp matrix
     {
+        auto rotation = XMMatrixRotationQuaternion(mQuatMonsterRot);
         const auto translation = DirectX::XMMatrixTranslation(mMonsterBasePos.x, mMonsterBasePos.y, mMonsterBasePos.z);
-        DirectX::XMMATRIX model = DirectX::XMMatrixMultiply(translation, rotation);
+        DirectX::XMMATRIX model = DirectX::XMMatrixMultiply(rotation, translation);
 
         const auto& viewProj = mCamera->viewProjMat();
         DirectX::XMMATRIX modelView = DirectX::XMMatrixMultiply(model, viewProj.view);

@@ -29,8 +29,8 @@ public:
         return mViewProj;
     }
 
-    DirectX::XMFLOAT4 cameraPosition() {
-        DirectX::XMFLOAT4 pos;
+    const DirectX::XMFLOAT4& cameraPosition() {
+        static DirectX::XMFLOAT4 pos;
         DirectX::XMStoreFloat4(&pos, mEye);
         return pos;
     }

@@ -272,10 +272,19 @@ void MD5Loader::UpdateMD5Model(float deltaTimeMS, int animation, const std::func
      * }
      */
 
+    static std::function<void(DirectX::XMFLOAT3&, const BoundingBox&, const BoundingBox&, float)> culculateCurrentPos =
+        [](DirectX::XMFLOAT3& result, const BoundingBox& firstFrame, const BoundingBox& lastFrame, float interpolation) {
+            result.x = lastFrame.max.x - interpolation * firstFrame.max.x;
+            result.z = lastFrame.max.z - interpolation * firstFrame.max.z;
+            result.y = lastFrame.max.y - interpolation * firstFrame.max.y;
+        };
+
     // Which frame are we on
     float currentFrame = mMD5Model.animations[animation].currAnimTime * mMD5Model.animations[animation].frameRate;
     int frame0 = floorf(currentFrame);
     int frame1 = frame0 + 1;
+
+    float interpolation = 1.0f;
 
     // Make sure we don't go over the number of frames
     if (frame0 >= mMD5Model.animations[animation].numFrames - 1) {
@@ -284,19 +293,18 @@ void MD5Loader::UpdateMD5Model(float deltaTimeMS, int animation, const std::func
         frame0 = 0;
         frame1 = 1;
 
-        const auto& boundingBoxFirstFrame = mMD5Model.animations[animation].frameBounds[0];
-        const auto& boundingBoxLastFrame =
-            mMD5Model.animations[animation].frameBounds[mMD5Model.animations[animation].numFrames - 1];
-        mPosDiffFirstLastFrames.x = boundingBoxLastFrame.max.x - boundingBoxFirstFrame.max.x;
-        mPosDiffFirstLastFrames.z = boundingBoxLastFrame.max.z - boundingBoxFirstFrame.max.z;
-        mPosDiffFirstLastFrames.y = boundingBoxLastFrame.max.y - boundingBoxFirstFrame.max.y;
+        culculateCurrentPos(mPosDiffFirstLastFrames, mMD5Model.animations[animation].frameBounds[0],
+                            mMD5Model.animations[animation].frameBounds[mMD5Model.animations[animation].numFrames - 1], 1.0f);
 
         if (callBackAnimFinished)
             callBackAnimFinished();
-    }
+    } else {
+        interpolation =
+            currentFrame - frame0;  // Get the remainder (in time) between frame0 and frame1 to use as interpolation factor
 
-    float interpolation =
-        currentFrame - frame0;  // Get the remainder (in time) between frame0 and frame1 to use as interpolation factor
+        /**culculateCurrentPos(mPosDiffFirstLastFrames, mMD5Model.animations[animation].frameBounds[frame0],
+                            mMD5Model.animations[animation].frameBounds[frame1], interpolation);*/
+    }
 
     // Create a frame skeleton to store the interpolated skeletons in
     if (mInterpolatedSkeleton.size() < mMD5Model.animations[animation].numJoints) {
