@@ -4,8 +4,8 @@
 
 class Camera {
 public:
-    constexpr static float ANGLE_GAIN = 0.6f;
-    constexpr static float GAIN_MOVEMENT = 0.35f;
+    constexpr static float ANGLE_GAIN = 3.5f;
+    constexpr static float GAIN_MOVEMENT = 2.5f;
 
     enum class EDirection { Forward = 0, Left, Right, Back, Turn_Left, Turn_Right };
 
@@ -41,7 +41,7 @@ public:
         return pos;
     }
 
-    void update(EDirection dir);
+    void update(float deltaTimeMS, EDirection dir);
 
 private:
     DirectX::XMVECTOR mEye;

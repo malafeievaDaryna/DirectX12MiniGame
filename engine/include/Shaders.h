@@ -1,6 +1,6 @@
 namespace shaders {
 const char vs_shader[] =
-    "cbuffer PerFaceConstants : register (b0)\n"
+    "cbuffer PerModelConstants : register (b0)\n"
     "{\n"
     "	matrix MVP;\n"
     "}\n"

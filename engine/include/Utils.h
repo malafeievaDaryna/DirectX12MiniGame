@@ -18,6 +18,7 @@ static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 3;
 static constexpr DXGI_FORMAT DEPTH_FORMAT = DXGI_FORMAT_D32_FLOAT;
 static constexpr DXGI_FORMAT RENDER_TARGET_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 static const std::string TEXTURE_PATH = "textures\\";
+const static float _144_FPS_TO_MS = 6.94f;
 }  // namespace constants
 
 namespace utils {

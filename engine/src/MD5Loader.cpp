@@ -102,6 +102,15 @@ bool MD5Loader::LoadMD5Anim(const std::vector<std::string>& filenames) {
                         fileIn >> tempBB.max.x >> tempBB.max.z >> tempBB.max.y;
                         fileIn >> checkString;  // Skip ")"
 
+                        if (std::numeric_limits<float>::epsilon() >= mRadius) {
+                            DirectX::XMVECTOR min = DirectX::XMVectorSet(tempBB.min.x, tempBB.min.y, tempBB.min.z, 0.0f);
+                            DirectX::XMVECTOR max = DirectX::XMVectorSet(tempBB.max.x, tempBB.max.y, tempBB.max.z, 0.0f);
+                            DirectX::XMVECTOR lengthVec = XMVector3Length(XMVectorSubtract(max, min));
+                            XMFLOAT4 length;
+                            XMStoreFloat4(&length, lengthVec);
+                            mRadius = length.x / 2.0f;
+                        }
+
                         tempAnim.frameBounds.push_back(tempBB);
                     }
                 } else if (checkString == "baseframe")  // This is the default position for the animation
@@ -302,8 +311,8 @@ void MD5Loader::UpdateMD5Model(float deltaTimeMS, int animation, const std::func
         interpolation =
             currentFrame - frame0;  // Get the remainder (in time) between frame0 and frame1 to use as interpolation factor
 
-        /**culculateCurrentPos(mPosDiffFirstLastFrames, mMD5Model.animations[animation].frameBounds[frame0],
-                            mMD5Model.animations[animation].frameBounds[frame1], interpolation);*/
+        culculateCurrentPos(mPosDiffFirstLastFrames, mMD5Model.animations[animation].frameBounds[frame0],
+                            mMD5Model.animations[animation].frameBounds[frame1], interpolation);
     }
 
     // Create a frame skeleton to store the interpolated skeletons in

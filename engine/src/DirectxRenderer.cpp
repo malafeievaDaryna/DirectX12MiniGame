@@ -101,6 +101,18 @@ RenderEnvironment CreateDeviceAndSwapChainHelper(_In_opt_ IDXGIAdapter* adapter,
 
     return result;
 }
+
+void getAndUpdateMonsterPosition(DirectX::XMFLOAT3& monsterBasePos, const XMFLOAT3& animationPosShift,
+                                 const DirectX::XMVECTOR& quatMonsterRot) {
+    XMVECTOR animationPosShiftVec = XMLoadFloat3(&animationPosShift);
+    XMVECTOR rotatedPosVec =
+        XMQuaternionMultiply(XMQuaternionMultiply(quatMonsterRot, animationPosShiftVec), XMQuaternionConjugate(quatMonsterRot));
+    XMFLOAT4 rotatedPos;
+    XMStoreFloat4(&rotatedPos, rotatedPosVec);
+    monsterBasePos.x += rotatedPos.x;
+    monsterBasePos.y += rotatedPos.y;
+    monsterBasePos.z += -rotatedPos.z;
+}
 }  // namespace
 
 DirectXRenderer::DirectXRenderer() : mWindow{nullptr, nullptr} {
@@ -113,7 +125,6 @@ DirectXRenderer::~DirectXRenderer() {
 void DirectXRenderer::Render() {
     static auto startTime = std::chrono::high_resolution_clock::now();
     static auto endTime = std::chrono::high_resolution_clock::now();
-    static float deltaTimeMS = 0.0f;
 
     // Start the Dear ImGui frame
     ImGui_ImplDX12_NewFrame();
@@ -165,9 +176,9 @@ void DirectXRenderer::Render() {
     commandList->ResourceBarrier(1, &barrierBefore);
 
     assert(mPistolAnimationsActions.find(mCurPistolAnim) != mPistolAnimationsActions.end());
-    md5PistolModel->UpdateMD5Model(deltaTimeMS, static_cast<int>(mCurPistolAnim), mPistolAnimationsActions[mCurPistolAnim]);
+    md5PistolModel->UpdateMD5Model(frameTimeMS, static_cast<int>(mCurPistolAnim), mPistolAnimationsActions[mCurPistolAnim]);
     assert(mMonsterAnimationsActions.find(mCurMonsterAnim) != mMonsterAnimationsActions.end());
-    md5MonsterModel->UpdateMD5Model(deltaTimeMS, static_cast<int>(mCurMonsterAnim), mMonsterAnimationsActions[mCurMonsterAnim]);
+    md5MonsterModel->UpdateMD5Model(frameTimeMS, static_cast<int>(mCurMonsterAnim), mMonsterAnimationsActions[mCurMonsterAnim]);
 
     mSkyBox->Update(m_currentFrame, mCamera->viewProjMat());
 
@@ -239,12 +250,12 @@ void DirectXRenderer::Render() {
     assert(m_currentFrame < MAX_FRAMES_IN_FLIGHT);
 
     endTime = std::chrono::high_resolution_clock::now();
-    deltaTimeMS = std::chrono::duration<float, std::chrono::milliseconds::period>(endTime - startTime).count();
+    frameTimeMS = std::chrono::duration<float, std::chrono::milliseconds::period>(endTime - startTime).count();
     startTime = endTime;
 
 #ifdef _DEBUG
     FPS_METRICS.second.first += 1;             // plus one frame
-    FPS_METRICS.second.second += deltaTimeMS;  // plus the time spent to draw the frame
+    FPS_METRICS.second.second += frameTimeMS;  // plus the time spent to draw the frame
     if (FPS_METRICS.second.second >= 1000u) {  // how many frames have we drawn within ~1sec
         FPS_METRICS.first = FPS_METRICS.second.second * FPS_METRICS.second.first / 1000.0f;
         FPS_METRICS.second = std::pair<uint32_t, float>{0u, 0.0f};  // actual FPS
@@ -253,6 +264,13 @@ void DirectXRenderer::Render() {
 }
 
 bool DirectXRenderer::Run() {
+    // log_debug("frameTimeMS ", frameTimeMS);
+    /** For debug only to lock FPS
+    float sleep = constants::_144_FPS_TO_MS - frameTimeMS;
+    sleep = sleep > 0 ? sleep : 0;
+    Sleep(sleep);
+    */
+
     MSG msg;
     // regular events loop to get window responsive
     // checking msg in the window queue
@@ -286,25 +304,25 @@ bool DirectXRenderer::Run() {
     lastMouseY = defaultMousePos.y;
 
     if (deltaMouseX < 0) {
-        mCamera->update(Camera::EDirection::Turn_Left);
+        mCamera->update(frameTimeMS, Camera::EDirection::Turn_Left);
     } else if (deltaMouseX > 0) {
-        mCamera->update(Camera::EDirection::Turn_Right);
+        mCamera->update(frameTimeMS, Camera::EDirection::Turn_Right);
     }
 
     if (kb.Escape) {
         return false;
     }
     if (kb.W || kb.Up) {
-        mCamera->update(Camera::EDirection::Forward);
+        mCamera->update(frameTimeMS, Camera::EDirection::Forward);
     }
     if (kb.A || kb.Left) {
-        mCamera->update(Camera::EDirection::Left);
+        mCamera->update(frameTimeMS, Camera::EDirection::Left);
     }
     if (kb.S || kb.Down) {
-        mCamera->update(Camera::EDirection::Back);
+        mCamera->update(frameTimeMS, Camera::EDirection::Back);
     }
     if (kb.D || kb.Right) {
-        mCamera->update(Camera::EDirection::Right);
+        mCamera->update(frameTimeMS, Camera::EDirection::Right);
     }
 
     Render();
@@ -449,7 +467,29 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     mPistolAnimationsActions[PISTOL_ANIM::RELOAD] = [this]() { mCurPistolAnim = PISTOL_ANIM::IDLE; };
     mPistolAnimationsActions[PISTOL_ANIM::FIRE] = [this]() {
         mCurPistolAnim = PISTOL_ANIM::IDLE;
-        mCurMonsterAnim = MONSTER_ANIM::PAIN;
+
+        DirectX::XMFLOAT3 monsterBasePosTempt = mMonsterBasePos;
+        getAndUpdateMonsterPosition(monsterBasePosTempt, md5MonsterModel->GetPosDiffFirstLastFrames(), mQuatMonsterRot);
+
+        const XMFLOAT4& eye = mCamera->cameraPosition();
+        XMVECTOR eyeVec = XMLoadFloat4(&eye);
+        XMVECTOR monsterPosVec = XMLoadFloat3(&monsterBasePosTempt);
+        XMVECTOR fromCameraToMonsterLengthVec = XMVector3Length(XMVectorSubtract(monsterPosVec, eyeVec));
+        XMFLOAT4 length;
+        XMStoreFloat4(&length, fromCameraToMonsterLengthVec);
+
+        const XMFLOAT4& eyeDir = mCamera->targetPosition();
+        XMVECTOR eyeDirVec = XMLoadFloat4(&eyeDir);
+
+        XMVECTOR bulletDestPosVec = XMVectorAdd(eyeVec, XMVectorScale(eyeDirVec, length.x));
+        XMVECTOR fromBulletToMonsterLengthVec = XMVector3Length(XMVectorSubtract(monsterPosVec, bulletDestPosVec));
+        XMStoreFloat4(&length, fromBulletToMonsterLengthVec);
+        // log_debug("fromBulletToMonsterLengthVec ", length.x);
+        // log_debug("radius ", md5MonsterModel->GetRadius());
+
+        if (md5MonsterModel->GetRadius() >= length.x) {
+            mCurMonsterAnim = MONSTER_ANIM::PAIN;
+        }
     };
 
     std::unordered_map<PISTOL_ANIM, std::string> pistolAnimations = {{PISTOL_ANIM::IDLE, "models/pistol_idle.md5anim"},
@@ -463,17 +503,7 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     mMonsterAnimationsActions[MONSTER_ANIM::IDLE] = nullptr;
     mMonsterAnimationsActions[MONSTER_ANIM::PAIN] = [this]() { mCurMonsterAnim = MONSTER_ANIM::IDLE; };
     mMonsterAnimationsActions[MONSTER_ANIM::RUN] = [this]() {
-        const XMFLOAT3& animationPosShift = md5MonsterModel->GetPosDiffFirstLastFrames();
-
-        XMVECTOR animationPosShiftVec = XMLoadFloat3(&animationPosShift);
-        XMVECTOR rotAdjustment = XMQuaternionRotationNormal(_upDir, XMConvertToRadians(0.0f));
-        XMVECTOR rotatedPosVec = XMQuaternionMultiply(XMQuaternionMultiply(mQuatMonsterRot, animationPosShiftVec),
-                                                   XMQuaternionConjugate(mQuatMonsterRot));
-        XMFLOAT4 rotatedPos;
-        XMStoreFloat4(&rotatedPos, rotatedPosVec);
-        mMonsterBasePos.x += rotatedPos.x;
-        mMonsterBasePos.y += rotatedPos.y;
-        mMonsterBasePos.z += -rotatedPos.z;
+        getAndUpdateMonsterPosition(mMonsterBasePos, md5MonsterModel->GetPosDiffFirstLastFrames(), mQuatMonsterRot);
         // log_debug("mMonsterBasePos ", mMonsterBasePos.x, " ", mMonsterBasePos.y, " ", mMonsterBasePos.z);
 
         const XMFLOAT4& eye = mCamera->cameraPosition();
@@ -499,7 +529,7 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
 
         newQuatVec = XMQuaternionMultiply(_md5RotAdjustment,
                                           newQuatVec);  // models directed along x axis, let's align them to positive z axis
-        // we need rotate monster instead scene rotation
+        // we need rotate the monster instead rotating the scene around the monster
         mQuatMonsterRot = XMQuaternionInverse(newQuatVec);
         mQuatMonsterRot = XMQuaternionMultiply(mQuatMonsterRot, XMQuaternionRotationNormal(_upDir, XMConvertToRadians(180.0f)));
     };

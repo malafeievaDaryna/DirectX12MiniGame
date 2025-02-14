@@ -111,6 +111,9 @@ public:
     const DirectX::XMFLOAT3& GetPosDiffFirstLastFrames() const {
         return mPosDiffFirstLastFrames;
     }
+    const float GetRadius() const {
+        return mRadius;
+    }
 
 private:
     bool LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* uploadCommandList, const std::string& filename);
@@ -126,4 +129,5 @@ private:
     std::vector<Joint> mInterpolatedSkeleton;
     int mLastAnimationID{0};
     DirectX::XMFLOAT3 mPosDiffFirstLastFrames{.0f, .0f, .0f};
+    float mRadius{0.0f};
 };

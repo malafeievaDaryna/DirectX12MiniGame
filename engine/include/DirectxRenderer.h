@@ -102,4 +102,6 @@ private:
     std::unordered_map<MONSTER_ANIM, std::function<void()>> mMonsterAnimationsActions;
     DirectX::XMFLOAT3 mMonsterBasePos{.0f, .0f, .0f};
     DirectX::XMVECTOR mQuatMonsterRot = DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f);
+
+    float frameTimeMS = 0.0f;
 };
