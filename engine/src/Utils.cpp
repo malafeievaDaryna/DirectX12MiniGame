@@ -8,8 +8,11 @@
 #include <stb_image.h>
 
 namespace utils {
-void ThrowIfFailed(HRESULT hr) {
+void ThrowIfFailed(HRESULT hr, const char* msg) {
     if (FAILED(hr)) {
+        if (msg) {
+            log_info(msg);
+        }
         // Set a breakpoint on this line to catch DirectX API errors
         throw std::exception();
     }

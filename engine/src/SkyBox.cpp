@@ -21,10 +21,10 @@ const char vs_shader[] =
     "	float3 uv : TEXCOORD;\n"
     "};\n"
     "VertexShaderOutput VS_main(\n"
-    "	float4 position : POSITION)\n"
+    "	float3 position : POSITION)\n"
     "{\n"
     "	VertexShaderOutput output;\n"
-    "   output.position = mul(MVP, position);\n"
+    "   output.position = mul(MVP, float4(position, 1));\n"
     "   output.position.z = output.position.w;\n"
     "   output.position.y = 0.3 * output.position.y + 0.15; // for better visual effect [-1: 1] -> [-0.15; 0.45]\n"
     "	output.uv = position.xyz;\n"
@@ -36,7 +36,8 @@ const char fs_shader[] =
     "float4 PS_main (float4 position : SV_POSITION,\n"
     "				float3 uv : TEXCOORD) : SV_TARGET\n"
     "{\n"
-    "	return inputTexture.Sample (texureSampler, normalize(uv));\n"
+    "   float attenuation = 0.03;"
+    "	return float4(attenuation, attenuation, attenuation, 1.0) * inputTexture.Sample (texureSampler, normalize(uv));\n"
     "}\n";
 }  // namespace
 

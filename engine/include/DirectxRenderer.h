@@ -20,6 +20,9 @@ class Window;
 class DirectXRenderer {
     struct ConstantBuffer {
         DirectX::XMMATRIX mvp;
+        DirectX::XMMATRIX model;
+        DirectX::XMFLOAT4 lightPos;
+        DirectX::XMFLOAT4 lightDir;
     };
 
     enum class PISTOL_ANIM { IDLE = 0, RELOAD, FIRE, MAX };

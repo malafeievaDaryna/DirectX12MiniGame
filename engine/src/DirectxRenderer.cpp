@@ -600,13 +600,14 @@ void DirectXRenderer::CreateMeshBuffers(ID3D12GraphicsCommandList* uploadCommand
     struct Vertex {
         float position[3];
         float uv[2];
+        float normal[3];
     };
 
     constexpr float landscapeScaleFactor = FAR_PLANE;
-    const Vertex vertices[4] = {{{-1.0f * landscapeScaleFactor, 0.0f, -1.0f * landscapeScaleFactor}, {0, 0}},
-                                {{-1.0f * landscapeScaleFactor, 0.0f, 1.0f * landscapeScaleFactor}, {1, 0}},
-                                {{1.0f * landscapeScaleFactor, 0.0f, 1.0f * landscapeScaleFactor}, {1, 1}},
-                                {{1.0f * landscapeScaleFactor, 0.0f, -1.0f * landscapeScaleFactor}, {0, 1}}};
+    const Vertex vertices[4] = {{{-1.0f * landscapeScaleFactor, 0.0f, -1.0f * landscapeScaleFactor}, {0, 0}, {0, 1, 0}},
+                                {{-1.0f * landscapeScaleFactor, 0.0f, 1.0f * landscapeScaleFactor}, {1, 0}, {0, 1, 0}},
+                                {{1.0f * landscapeScaleFactor, 0.0f, 1.0f * landscapeScaleFactor}, {1, 1}, {0, 1, 0}},
+                                {{1.0f * landscapeScaleFactor, 0.0f, -1.0f * landscapeScaleFactor}, {0, 1}, {0, 1, 0}}};
 
     const int indices[6] = {0, 1, 2, 2, 3, 0};
 
@@ -665,7 +666,8 @@ void DirectXRenderer::CreateMeshBuffers(ID3D12GraphicsCommandList* uploadCommand
 void DirectXRenderer::CreatePipelineStateObject() {
     static const D3D12_INPUT_ELEMENT_DESC layout[] = {
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}};
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 20, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}};
 
 #if defined(_DEBUG)
     // Enable better shader debugging with the graphics debugging tools.
@@ -673,14 +675,17 @@ void DirectXRenderer::CreatePipelineStateObject() {
 #else
     UINT compileFlags = 0;
 #endif
+    ID3D10Blob* errorMsgs{nullptr};
 
     ComPtr<ID3DBlob> vertexShader;
-    D3DCompile(shaders::vs_shader, sizeof(shaders::vs_shader), "", nullptr, nullptr, "VS_main", "vs_5_1", compileFlags, 0,
-               &vertexShader, nullptr);
+    auto res = D3DCompile(shaders::directionalLight::vs_shader, sizeof(shaders::directionalLight::vs_shader), "", nullptr,
+                          nullptr, "VS_main", "vs_5_1", compileFlags, 0, &vertexShader, &errorMsgs);
+    ThrowIfFailed(res, errorMsgs ? (const char*)errorMsgs->GetBufferPointer() : nullptr);
 
     ComPtr<ID3DBlob> pixelShader;
-    D3DCompile(shaders::fs_shader, sizeof(shaders::fs_shader), "", nullptr, nullptr, "PS_main", "ps_5_1", compileFlags, 0,
-               &pixelShader, nullptr);
+    res = D3DCompile(shaders::directionalLight::fs_shader, sizeof(shaders::directionalLight::fs_shader), "", nullptr, nullptr,
+                     "PS_main", "ps_5_1", compileFlags, 0, &pixelShader, &errorMsgs);
+    ThrowIfFailed(res, errorMsgs ? (const char*)errorMsgs->GetBufferPointer() : nullptr);
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
     psoDesc.VS.BytecodeLength = vertexShader->GetBufferSize();
@@ -724,7 +729,7 @@ void DirectXRenderer::CreateRootSignature() {
     parameters[0].InitAsDescriptorTable(1, &range);
 
     // Our constant buffer view
-    parameters[1].InitAsConstantBufferView(0, 0, D3D12_SHADER_VISIBILITY_VERTEX);
+    parameters[1].InitAsConstantBufferView(0, 0, D3D12_SHADER_VISIBILITY_ALL);
 
     // We don't use another descriptor heap for the sampler, instead we use a
     // static sampler
@@ -775,6 +780,10 @@ void DirectXRenderer::CreateConstantBuffer() {
 
 void DirectXRenderer::UpdateConstantBuffer() {
     static auto rotation = XMMatrixRotationQuaternion(_md5RotAdjustment);
+
+    mConstantBufferData.lightPos = mCamera->cameraPosition();
+    mConstantBufferData.lightDir = mCamera->targetPosition();
+
     // pistol mvp matrix
     {
         // some offset from camera to our hand&pistol
@@ -786,6 +795,7 @@ void DirectXRenderer::UpdateConstantBuffer() {
         // we ignore view matrix because our hand&pistol must follow camera rotation
         DirectX::XMMATRIX modelView = model;
         mConstantBufferData.mvp = DirectX::XMMatrixMultiply(modelView, viewProj.proj);
+        mConstantBufferData.model = model;
 
         void* data;
         mPistolConstantBuffers[m_currentFrame]->Map(0, nullptr, &data);
@@ -802,6 +812,7 @@ void DirectXRenderer::UpdateConstantBuffer() {
         const auto& viewProj = mCamera->viewProjMat();
         DirectX::XMMATRIX modelView = DirectX::XMMatrixMultiply(model, viewProj.view);
         mConstantBufferData.mvp = DirectX::XMMatrixMultiply(modelView, viewProj.proj);
+        mConstantBufferData.model = model;
 
         void* data;
         mMonsterConstantBuffers[m_currentFrame]->Map(0, nullptr, &data);
@@ -814,6 +825,7 @@ void DirectXRenderer::UpdateConstantBuffer() {
         const auto& viewProj = mCamera->viewProjMat();
         // landscape doesn't have model matrix since it's static object
         mConstantBufferData.mvp = DirectX::XMMatrixMultiply(viewProj.view, viewProj.proj);
+        mConstantBufferData.model = XMMatrixIdentity();
 
         void* data;
         mLandScapeConstantBuffers[m_currentFrame]->Map(0, nullptr, &data);

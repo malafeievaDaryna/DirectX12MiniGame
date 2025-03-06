@@ -67,7 +67,7 @@ void log_debug(Args... args) {
 }
 #endif
 
-void ThrowIfFailed(HRESULT hr);
+void ThrowIfFailed(HRESULT hr, const char* msg = nullptr);
 
 DirectX::XMMATRIX extractRotationMatrix(const DirectX::XMMATRIX& input);
 
