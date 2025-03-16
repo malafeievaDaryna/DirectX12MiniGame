@@ -207,7 +207,6 @@ void DirectXRenderer::Render() {
         // Set slot 0 of our root signature to point to our descriptor heap with
         // the texture SRV
         commandList->SetGraphicsRootDescriptorTable(0, mLandscapeTexture.srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-
         commandList->SetGraphicsRootConstantBufferView(1, mLandScapeConstantBuffers[m_currentFrame]->GetGPUVirtualAddress());
 
         commandList->IASetVertexBuffers(0, 1, &mVertexBufferView);
@@ -460,7 +459,7 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     CreateConstantBuffer();
 
     // landscape
-    mLandscapeTexture = utils::CreateTexture(mDevice.Get(), uploadCommandList.Get(), "landscape.png");
+    mLandscapeTexture = utils::CreateTexture(mDevice.Get(), uploadCommandList.Get(), {"landscape.png"});
     CreateMeshBuffers(uploadCommandList.Get());
 
     mPistolAnimationsActions[PISTOL_ANIM::IDLE] = nullptr;
@@ -667,7 +666,10 @@ void DirectXRenderer::CreatePipelineStateObject() {
     static const D3D12_INPUT_ELEMENT_DESC layout[] = {
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 20, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}};
+        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 20, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TANGENT", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"BITANGENT", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 44, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    };
 
 #if defined(_DEBUG)
     // Enable better shader debugging with the graphics debugging tools.
@@ -726,7 +728,7 @@ void DirectXRenderer::CreateRootSignature() {
 
     // Create a descriptor table with one entry in our descriptor heap
     CD3DX12_DESCRIPTOR_RANGE range{D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0};
-    parameters[0].InitAsDescriptorTable(1, &range);
+    parameters[0].InitAsDescriptorTable(1, &range, D3D12_SHADER_VISIBILITY_PIXEL);
 
     // Our constant buffer view
     parameters[1].InitAsConstantBufferView(0, 0, D3D12_SHADER_VISIBILITY_ALL);

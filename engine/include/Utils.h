@@ -72,5 +72,5 @@ void ThrowIfFailed(HRESULT hr, const char* msg = nullptr);
 DirectX::XMMATRIX extractRotationMatrix(const DirectX::XMMATRIX& input);
 
 Texture2DResource CreateTexture(ID3D12Device* device, ID3D12GraphicsCommandList* uploadCommandList,
-                                const std::string& textureFileName);
+                                const std::vector<std::string>& textureFileNames);
 }  // namespace utils

@@ -6,6 +6,7 @@
 #include "d3dx12.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
+#include <filesystem>
 
 namespace utils {
 void ThrowIfFailed(HRESULT hr, const char* msg) {
@@ -72,75 +73,98 @@ void DescriptorHeapAllocator::Free(D3D12_CPU_DESCRIPTOR_HANDLE out_cpu_desc_hand
 }
 
 Texture2DResource CreateTexture(ID3D12Device* device, ID3D12GraphicsCommandList* uploadCommandList,
-                                const std::string& textureFileName) {
-    assert(uploadCommandList && device && !textureFileName.empty());
-    std::unordered_map<std::string, Texture2DResource> texturesCache;
+                                const std::vector<std::string>& textureFileNames) {
+    assert(uploadCommandList && device && !textureFileNames.empty() && !textureFileNames[0].empty());
 
-    if (auto search = texturesCache.find(textureFileName); search != texturesCache.end()) {
-        log_debug("textures cache has such texture", textureFileName);
-        return search->second;
-    } else {
+    using dataTexturetPtr = std::unique_ptr<stbi_uc, decltype(&stbi_image_free)>;
+
+    Texture2DResource textureResource;
+
+    int texWidth, texHeight, texChannels;
+    std::size_t imageSizeTotal = 0u;
+    std::vector<dataTexturetPtr> textureData;
+
+    for (const auto& textureFileName : textureFileNames) {
         log_debug("creation new texture for", textureFileName);
-        auto& textureResource = texturesCache[textureFileName];
-        int texWidth, texHeight, texChannels;
-        std::size_t imageSizeTotal = 0u;
-        using dataTexturetPtr = std::unique_ptr<stbi_uc, decltype(&stbi_image_free)>;
 
         std::string path = constants::TEXTURE_PATH + textureFileName;
+
+        std::error_code ec;
+        if (!std::filesystem::exists(path, ec)) {
+            log_debug("no texture", textureFileName);
+            break;
+        }
 
         /// STBI_rgb_alpha coerces to have ALPHA chanel for consistency with alphaless images
         stbi_uc* pixels = stbi_load(path.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
         assert(pixels);
-        dataTexturetPtr textureData(pixels, stbi_image_free);
+        textureData.emplace_back(pixels, stbi_image_free);
         imageSizeTotal += texWidth * texHeight * 4LL;
-
-        static const auto defaultHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-        const auto resourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, texWidth, texHeight, 1, 1);
-
-        device->CreateCommittedResource(&defaultHeapProperties, D3D12_HEAP_FLAG_NONE, &resourceDesc,
-                                        D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&textureResource.image));
-
-        static const auto uploadHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
-        const auto uploadBufferSize = GetRequiredIntermediateSize(textureResource.image.Get(), 0, 1);
-        const auto uploadBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize);
-
-        device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &uploadBufferDesc,
-                                        D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&textureResource.stagingBuffer));
-
-        D3D12_SUBRESOURCE_DATA srcData;
-        srcData.pData = textureData.get();
-        srcData.RowPitch = texWidth * 4;
-        srcData.SlicePitch = texWidth * texHeight * 4;
-
-        UpdateSubresources(uploadCommandList, textureResource.image.Get(), textureResource.stagingBuffer.Get(), 0, 0, 1,
-                           &srcData);
-        const auto transition = CD3DX12_RESOURCE_BARRIER::Transition(textureResource.image.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
-                                                                     D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        uploadCommandList->ResourceBarrier(1, &transition);
-
-        D3D12_SHADER_RESOURCE_VIEW_DESC shaderResourceViewDesc = {};
-        shaderResourceViewDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-        shaderResourceViewDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        shaderResourceViewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
-        shaderResourceViewDesc.Texture2D.MipLevels = 1;
-        shaderResourceViewDesc.Texture2D.MostDetailedMip = 0;
-        shaderResourceViewDesc.Texture2D.ResourceMinLODClamp = 0.0f;
-
-        // We need one descriptor heap to store our texture SRV which cannot go
-        // into the root signature. So create a SRV type heap with one entry
-        D3D12_DESCRIPTOR_HEAP_DESC descriptorHeapDesc = {};
-        descriptorHeapDesc.NumDescriptors = 1;
-        // This heap contains SRV, UAV or CBVs -- in our case one SRV
-        descriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        descriptorHeapDesc.NodeMask = 0;
-        descriptorHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-
-        device->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&textureResource.srvDescriptorHeap));
-
-        device->CreateShaderResourceView(textureResource.image.Get(), &shaderResourceViewDesc,
-                                         textureResource.srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
-        return textureResource;
     }
+
+    const std::size_t texturesAmount = textureData.size();
+    const std::size_t layerSize = imageSizeTotal / texturesAmount;
+
+    static const auto defaultHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+    const auto resourceDesc =
+        CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, texWidth, texHeight, texturesAmount, 1);
+
+    device->CreateCommittedResource(&defaultHeapProperties, D3D12_HEAP_FLAG_NONE, &resourceDesc, D3D12_RESOURCE_STATE_COPY_DEST,
+                                    nullptr, IID_PPV_ARGS(&textureResource.image));
+
+    static const auto uploadHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
+    const auto uploadBufferSize = GetRequiredIntermediateSize(textureResource.image.Get(), 0, texturesAmount);
+    const auto uploadBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize);
+
+    device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &uploadBufferDesc,
+                                    D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&textureResource.stagingBuffer));
+
+    char* data = (char*)malloc(imageSizeTotal);
+    for (std::size_t i = 0u; i < texturesAmount; ++i) {
+        memcpy((void*)(data + (layerSize * i)), textureData[i].get(), static_cast<size_t>(layerSize));
+    }
+
+    D3D12_SUBRESOURCE_DATA srcData;
+    srcData.RowPitch = texWidth * 4;
+    srcData.SlicePitch = texWidth * texHeight * 4;
+
+    for (std::size_t i = 0u; i < texturesAmount; ++i) {
+        srcData.pData = (void*)(data + (layerSize * i));
+        UpdateSubresources(uploadCommandList, textureResource.image.Get(), textureResource.stagingBuffer.Get(), (layerSize * i),
+                           i, 1,
+                           &srcData);
+    }
+
+    const auto transition = CD3DX12_RESOURCE_BARRIER::Transition(textureResource.image.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+                                                                 D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    uploadCommandList->ResourceBarrier(1, &transition);
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC shaderResourceViewDesc = {};
+    shaderResourceViewDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+    shaderResourceViewDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    shaderResourceViewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+    shaderResourceViewDesc.Texture2DArray.MipLevels = 1;
+    shaderResourceViewDesc.Texture2DArray.MostDetailedMip = 0;
+    shaderResourceViewDesc.Texture2DArray.ResourceMinLODClamp = 0.0f;
+    shaderResourceViewDesc.Texture2DArray.ArraySize = texturesAmount;
+
+    // We need one descriptor heap to store our texture SRV which cannot go
+    // into the root signature. So create a SRV type heap with one entry
+    D3D12_DESCRIPTOR_HEAP_DESC descriptorHeapDesc = {};
+    descriptorHeapDesc.NumDescriptors = 1;
+    // This heap contains SRV, UAV or CBVs -- in our case one SRV
+    descriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    descriptorHeapDesc.NodeMask = 0;
+    descriptorHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+
+    device->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&textureResource.srvDescriptorHeap));
+
+    device->CreateShaderResourceView(textureResource.image.Get(), &shaderResourceViewDesc,
+                                     textureResource.srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+
+    free((void*)data);
+
+    return textureResource;
 }
 // TODO alternative to stbi functional
 // void CreateTextureWIC(ID3D12Device* device, ID3D12GraphicsCommandList* uploadCommandList, const std::string& textureFileName) {

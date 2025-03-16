@@ -77,6 +77,8 @@ class MD5Loader {
         float bias;
         XMFLOAT3 pos;
         XMFLOAT3 normal;
+        XMFLOAT3 tangent;
+        XMFLOAT3 bitangent;
     };
 
     struct ModelSubset {

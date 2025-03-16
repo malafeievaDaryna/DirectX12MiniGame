@@ -408,6 +408,8 @@ void MD5Loader::updateAnimationChunk(std::size_t subsetId, std::size_t indexFrom
         Vertex& tempVert = subset.vertices[i];
         tempVert.pos = XMFLOAT3(0, 0, 0);     // Make sure the vertex's pos is cleared first
         tempVert.normal = XMFLOAT3(0, 0, 0);  // Clear vertices normal
+        tempVert.tangent = XMFLOAT3(0, 0, 0);  // Clear vertices normal
+        tempVert.biTangent = XMFLOAT3(0, 0, 0);  // Clear vertices normal
 
         // Sum up the joints and weights information to get vertex's position and normal
         for (std::size_t j = 0; j < tempVert.WeightCount; ++j) {
@@ -447,9 +449,28 @@ void MD5Loader::updateAnimationChunk(std::size_t subsetId, std::size_t indexFrom
             tempVert.normal.x -= rotatedPoint.x * tempWeight.bias;
             tempVert.normal.y -= rotatedPoint.y * tempWeight.bias;
             tempVert.normal.z -= rotatedPoint.z * tempWeight.bias;
+
+            XMVECTOR tempWeightTangent = XMVectorSet(tempWeight.tangent.x, tempWeight.tangent.y, tempWeight.tangent.z, 0.0f);
+            XMStoreFloat3(&rotatedPoint, XMQuaternionMultiply(XMQuaternionMultiply(tempJointOrientation, tempWeightTangent),
+                                                              tempJointOrientationConjugate));
+
+            tempVert.tangent.x -= rotatedPoint.x * tempWeight.bias;
+            tempVert.tangent.y -= rotatedPoint.y * tempWeight.bias;
+            tempVert.tangent.z -= rotatedPoint.z * tempWeight.bias;
+
+            XMVECTOR tempWeightBitangent =
+                XMVectorSet(tempWeight.bitangent.x, tempWeight.bitangent.y, tempWeight.bitangent.z, 0.0f);
+            XMStoreFloat3(&rotatedPoint, XMQuaternionMultiply(XMQuaternionMultiply(tempJointOrientation, tempWeightBitangent),
+                                                              tempJointOrientationConjugate));
+
+            tempVert.biTangent.x -= rotatedPoint.x * tempWeight.bias;
+            tempVert.biTangent.y -= rotatedPoint.y * tempWeight.bias;
+            tempVert.biTangent.z -= rotatedPoint.z * tempWeight.bias;
         }
 
         XMStoreFloat3(&tempVert.normal, XMVector3Normalize(XMLoadFloat3(&tempVert.normal)));
+        XMStoreFloat3(&tempVert.tangent, XMVector3Normalize(XMLoadFloat3(&tempVert.tangent)));
+        XMStoreFloat3(&tempVert.biTangent, XMVector3Normalize(XMLoadFloat3(&tempVert.biTangent)));
     }
 }
 
@@ -565,7 +586,20 @@ bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* up
                         fileNamePath.erase(0, 1);
                         fileNamePath.erase(fileNamePath.size() - 1, 1);
 
-                        subset.texture = utils::CreateTexture(device, uploadCommandList, fileNamePath);
+                        std::string fileNameBumpTexPath = fileNamePath;
+                        std::size_t dotIndex = fileNameBumpTexPath.rfind('.');
+                        if (dotIndex != std::string::npos) {
+                            fileNameBumpTexPath.replace(dotIndex, 1, "_b.");
+                        }
+
+                        std::string fileNameSpecularTexPath = fileNamePath;
+                        dotIndex = fileNameSpecularTexPath.rfind('.');
+                        if (dotIndex != std::string::npos) {
+                            fileNameSpecularTexPath.replace(dotIndex, 1, "_s.");
+                        }
+
+                        subset.texture = utils::CreateTexture(device, uploadCommandList,
+                                                              {fileNamePath, fileNameBumpTexPath, fileNameSpecularTexPath});
 
                         std::getline(fileIn, checkString);  // Skip rest of this line
                     } else if (checkString == "numverts") {
@@ -693,12 +727,18 @@ bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* up
 
                 //*** Calculate vertex normals using normal averaging ***///
                 std::vector<XMFLOAT3> tempNormal;
+                std::vector<XMFLOAT3> tempTangent;
+                std::vector<XMFLOAT3> tempBitangent;
 
                 // normalized and unnormalized normals
                 XMFLOAT3 unnormalized = XMFLOAT3(0.0f, 0.0f, 0.0f);
 
                 // Used to get vectors (sides) from the position of the verts
-                float vecX, vecY, vecZ;
+                float edge1X, edge1Y, edge1Z;
+                float edge2X, edge2Y, edge2Z;
+
+                float deltaUV1X, deltaUV1Y, deltaUV2X, deltaUV2Y;
+                float tangentX, tangentY, tangentZ, bitangentX, bitangentY, bitangentZ, f;
 
                 // Two edges of our triangle
                 XMVECTOR edge1 = XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
@@ -707,64 +747,106 @@ bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* up
                 // Compute face normals
                 for (int i = 0; i < subset.numTriangles; ++i) {
                     // Get the vector describing one edge of our triangle (edge 0,2)
-                    vecX = subset.vertices[subset.indices[(i * 3)]].pos.x - subset.vertices[subset.indices[(i * 3) + 2]].pos.x;
-                    vecY = subset.vertices[subset.indices[(i * 3)]].pos.y - subset.vertices[subset.indices[(i * 3) + 2]].pos.y;
-                    vecZ = subset.vertices[subset.indices[(i * 3)]].pos.z - subset.vertices[subset.indices[(i * 3) + 2]].pos.z;
-                    edge1 = XMVectorSet(vecX, vecY, vecZ, 0.0f);  // Create our first edge
+                    edge2X = subset.vertices[subset.indices[(i * 3) + 2]].pos.x - subset.vertices[subset.indices[(i * 3)]].pos.x;
+                    edge2Y = subset.vertices[subset.indices[(i * 3) + 2]].pos.y - subset.vertices[subset.indices[(i * 3)]].pos.y;
+                    edge2Z = subset.vertices[subset.indices[(i * 3) + 2]].pos.z - subset.vertices[subset.indices[(i * 3)]].pos.z;
+                    edge2 = XMVectorSet(edge2X, edge2Y, edge2Z, 0.0f);  // Create our first edge
 
                     // Get the vector describing another edge of our triangle (edge 2,1)
-                    vecX =
-                        subset.vertices[subset.indices[(i * 3) + 2]].pos.x - subset.vertices[subset.indices[(i * 3) + 1]].pos.x;
-                    vecY =
-                        subset.vertices[subset.indices[(i * 3) + 2]].pos.y - subset.vertices[subset.indices[(i * 3) + 1]].pos.y;
-                    vecZ =
-                        subset.vertices[subset.indices[(i * 3) + 2]].pos.z - subset.vertices[subset.indices[(i * 3) + 1]].pos.z;
-                    edge2 = XMVectorSet(vecX, vecY, vecZ, 0.0f);  // Create our second edge
+                    edge1X =
+                        subset.vertices[subset.indices[(i * 3) + 1]].pos.x - subset.vertices[subset.indices[(i * 3)]].pos.x;
+                    edge1Y =
+                        subset.vertices[subset.indices[(i * 3) + 1]].pos.y - subset.vertices[subset.indices[(i * 3)]].pos.y;
+                    edge1Z =
+                        subset.vertices[subset.indices[(i * 3) + 1]].pos.z - subset.vertices[subset.indices[(i * 3)]].pos.z;
+                    edge1 = XMVectorSet(edge1X, edge1Y, edge1Z, 0.0f);  // Create our second edge
 
                     // Cross multiply the two edge vectors to get the un-normalized face normal
                     XMStoreFloat3(&unnormalized, XMVector3Cross(edge1, edge2));
 
                     tempNormal.push_back(unnormalized);
+
+                    // Tangent & Bitangent calculation
+                    deltaUV1X = subset.vertices[subset.indices[(i * 3) + 1]].texCoord.x -
+                                subset.vertices[subset.indices[(i * 3)]].texCoord.x;
+                    deltaUV1Y = subset.vertices[subset.indices[(i * 3) + 1]].texCoord.y -
+                                subset.vertices[subset.indices[(i * 3)]].texCoord.y;
+                    deltaUV2X = subset.vertices[subset.indices[(i * 3) + 2]].texCoord.x -
+                                subset.vertices[subset.indices[(i * 3)]].texCoord.x;
+                    deltaUV2Y = subset.vertices[subset.indices[(i * 3) + 2]].texCoord.y -
+                                subset.vertices[subset.indices[(i * 3)]].texCoord.y;
+
+                    f = 1.0f / (deltaUV1X * deltaUV2Y - deltaUV2X * deltaUV1Y);
+
+                    tangentX = f * (deltaUV2Y * edge1X - deltaUV1Y * edge2X);
+                    tangentY = f * (deltaUV2Y * edge1Y - deltaUV1Y * edge2Y);
+                    tangentZ = f * (deltaUV2Y * edge1Z - deltaUV1Y * edge2Z);
+
+                    tempTangent.emplace_back(tangentX, tangentY, tangentZ);
+
+                    bitangentX = f * (-deltaUV2X * edge1X + deltaUV1X * edge2X);
+                    bitangentY = f * (-deltaUV2X * edge1Y + deltaUV1X * edge2Y);
+                    bitangentZ = f * (-deltaUV2X * edge1Z + deltaUV1X * edge2Z);
+
+                    tempBitangent.emplace_back(bitangentX, bitangentY, bitangentZ);
                 }
 
                 // Compute vertex normals (normal Averaging)
-                XMVECTOR normalSum = XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
-                int facesUsing = 0;
-                float tX, tY, tZ;  // temp axis variables
+                XMFLOAT3 normalSum{0.0f, 0.0f, 0.0f};
+                XMFLOAT3 tangentSum{0.0f, 0.0f, 0.0f};
+                XMFLOAT3 bitangentSum{0.0f, 0.0f, 0.0f};
 
                 // Go through each vertex
                 for (int i = 0; i < subset.vertices.size(); ++i) {
                     // Check which triangles use this vertex
                     for (int j = 0; j < subset.numTriangles; ++j) {
                         if (subset.indices[j * 3] == i || subset.indices[(j * 3) + 1] == i || subset.indices[(j * 3) + 2] == i) {
-                            tX = XMVectorGetX(normalSum) + tempNormal[j].x;
-                            tY = XMVectorGetY(normalSum) + tempNormal[j].y;
-                            tZ = XMVectorGetZ(normalSum) + tempNormal[j].z;
+                            normalSum.x += tempNormal[j].x;
+                            normalSum.y += tempNormal[j].y;
+                            normalSum.z += tempNormal[j].z;
 
-                            normalSum = XMVectorSet(
-                                tX, tY, tZ,
-                                0.0f);  // If a face is using the vertex, add the unormalized face normal to the normalSum
+                            tangentSum.x += tempTangent[j].x;
+                            tangentSum.y += tempTangent[j].y;
+                            tangentSum.z += tempTangent[j].z;
 
-                            facesUsing++;
+                            bitangentSum.x += tempBitangent[j].x;
+                            bitangentSum.y += tempBitangent[j].y;
+                            bitangentSum.z += tempBitangent[j].z;
                         }
                     }
 
-                    // Get the actual normal by dividing the normalSum by the number of faces sharing the vertex
-                    normalSum = normalSum / facesUsing;
-
                     // Normalize the normalSum vector
-                    normalSum = XMVector3Normalize(normalSum);
+                    { 
+                        XMVECTOR temp = XMVector3Normalize(XMVectorSet(normalSum.x, normalSum.y, normalSum.z, 0.0f));
+                        XMStoreFloat3(&normalSum, temp);
+
+                        temp = XMVector3Normalize(XMVectorSet(tangentSum.x, tangentSum.y, tangentSum.z, 0.0f));
+                        XMStoreFloat3(&tangentSum, temp);
+
+                        temp = XMVector3Normalize(XMVectorSet(bitangentSum.x, bitangentSum.y, bitangentSum.z, 0.0f));
+                        XMStoreFloat3(&bitangentSum, temp);
+                    }
 
                     // Store the normal and tangent in our current vertex
-                    subset.vertices[i].normal.x = -XMVectorGetX(normalSum);
-                    subset.vertices[i].normal.y = -XMVectorGetY(normalSum);
-                    subset.vertices[i].normal.z = -XMVectorGetZ(normalSum);
+                    subset.vertices[i].normal.x = -normalSum.x;
+                    subset.vertices[i].normal.y = -normalSum.y;
+                    subset.vertices[i].normal.z = -normalSum.z;
+
+                    subset.vertices[i].tangent.x = -tangentSum.x;
+                    subset.vertices[i].tangent.y = -tangentSum.y;
+                    subset.vertices[i].tangent.z = -tangentSum.z;
+
+                    subset.vertices[i].biTangent.x = -bitangentSum.x;
+                    subset.vertices[i].biTangent.y = -bitangentSum.y;
+                    subset.vertices[i].biTangent.z = -bitangentSum.z;
 
                     ///////////////**************new**************////////////////////
                     // Create the joint space normal for easy normal calculations in animation
                     Vertex& tempVert = subset.vertices[i];                  // Get the current vertex
                     subset.jointSpaceNormals.push_back(XMFLOAT3(0, 0, 0));  // Push back a blank normal
-                    XMVECTOR normal = XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);  // Clear normal
+                    XMVECTOR normal = XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
+                    XMVECTOR tangent = XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
+                    XMVECTOR bitnagent = XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
 
                     for (int k = 0; k < tempVert.WeightCount; k++)  // Loop through each of the vertices weights
                     {
@@ -774,16 +856,30 @@ bool MD5Loader::LoadMD5Model(ID3D12Device* device, ID3D12GraphicsCommandList* up
                                                                 tempJoint.orientation.z, tempJoint.orientation.w);
 
                         // Calculate normal based off joints orientation (turn into joint space)
-                        normal = XMQuaternionMultiply(XMQuaternionMultiply(XMQuaternionInverse(jointOrientation), normalSum),
+                        normal =
+                            XMQuaternionMultiply(XMQuaternionMultiply(XMQuaternionInverse(jointOrientation),
+                                                                      XMVectorSet(normalSum.x, normalSum.y, normalSum.z, 0.0f)),
                                                       jointOrientation);
 
                         XMStoreFloat3(&subset.weights[tempVert.StartWeight + k].normal,
                                       XMVector3Normalize(normal));  // Store the normalized quaternion into our weights normal
+
+                        tangent = XMQuaternionMultiply(
+                            XMQuaternionMultiply(XMQuaternionInverse(jointOrientation),
+                                                 XMVectorSet(tangentSum.x, tangentSum.y, tangentSum.z, 0.0f)),
+                                                      jointOrientation);
+
+                        XMStoreFloat3(&subset.weights[tempVert.StartWeight + k].tangent,
+                                      XMVector3Normalize(tangent));
+
+                        bitnagent = XMQuaternionMultiply(
+                            XMQuaternionMultiply(XMQuaternionInverse(jointOrientation),
+                                                 XMVectorSet(bitangentSum.x, bitangentSum.y, bitangentSum.z, 0.0f)),
+                                                      jointOrientation);
+
+                        XMStoreFloat3(&subset.weights[tempVert.StartWeight + k].bitangent,
+                                      XMVector3Normalize(bitnagent));
                     }
-                    ///////////////**************new**************////////////////////
-                    // Clear normalSum, facesUsing for next vertex
-                    normalSum = XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
-                    facesUsing = 0;
                 }
                 /// uploading verts & indices into CPU\GPU shared memory
                 const int32_t indicesSize = sizeof(uint32_t) * subset.numTriangles * 3;
@@ -827,13 +923,13 @@ void MD5Loader::Draw(ID3D12GraphicsCommandList* commandList) {
     assert(commandList);
     assert(mMD5Model.numSubsets > 0);
     for (int k = 0; k < mMD5Model.numSubsets; k++) {
-        // Set the descriptor heap containing the texture srv
+            // Set the descriptor heap containing the texture srv
         ID3D12DescriptorHeap* heaps[] = {mMD5Model.subsets[k].texture.srvDescriptorHeap.Get()};
-        commandList->SetDescriptorHeaps(1, heaps);
-        // Set slot 0 of our root signature to point to our descriptor heap with
-        // the texture SRV
-        commandList->SetGraphicsRootDescriptorTable(
-            0, mMD5Model.subsets[k].texture.srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+            commandList->SetDescriptorHeaps(1, heaps);
+            // Set slot 0 of our root signature to point to our descriptor heap with
+            // the texture SRV
+            commandList->SetGraphicsRootDescriptorTable(
+                0, mMD5Model.subsets[k].texture.srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
         commandList->IASetVertexBuffers(0, 1, &mMD5Model.subsets[k].verticesBufferView);
         commandList->IASetIndexBuffer(&mMD5Model.subsets[k].indicesBufferView);
