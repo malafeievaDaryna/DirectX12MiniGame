@@ -18,7 +18,7 @@ class SkyBox {
 
 public:
     SkyBox(ID3D12Device* device, ID3D12CommandQueue* commandQueue, ID3D12GraphicsCommandList* uploadCommandList,
-           const std::string ddsFileName);
+           const std::string& ddsFileName);
     void Update(UINT32 currentFrame, const Camera::ViewProj& viewProj);
     void Draw(UINT32 currentFrame, ID3D12GraphicsCommandList* commandList);
 

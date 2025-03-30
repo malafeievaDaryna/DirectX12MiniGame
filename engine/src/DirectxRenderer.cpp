@@ -182,6 +182,8 @@ void DirectXRenderer::Render() {
 
     mSkyBox->Update(m_currentFrame, mCamera->viewProjMat());
 
+    mGrassParticles->Update(m_currentFrame, mCamera->viewProjMat(), mCamera->cameraPosition(), mCamera->targetPosition());
+
     UpdateConstantBuffer();
 
     static const float clearColor[] = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -190,18 +192,11 @@ void DirectXRenderer::Render() {
     commandList->ClearDepthStencilView(mDSDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0,
                                        0, nullptr);
 
-    commandList->SetPipelineState(mPso.Get());
-    commandList->SetGraphicsRootSignature(mRootSignature.Get());
-    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    // Set slot 1 of our root signature to the constant buffer view
-    commandList->SetGraphicsRootConstantBufferView(1, mPistolConstantBuffers[m_currentFrame]->GetGPUVirtualAddress());
-    md5PistolModel->Draw(commandList);
-
-    commandList->SetGraphicsRootConstantBufferView(1, mMonsterConstantBuffers[m_currentFrame]->GetGPUVirtualAddress());
-    md5MonsterModel->Draw(commandList);
-
     // landscape
     {
+        commandList->SetPipelineState(mPso.Get());
+        commandList->SetGraphicsRootSignature(mRootSignature.Get());
+        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         ID3D12DescriptorHeap* heaps[] = {mLandscapeTexture.srvDescriptorHeap.Get()};
         commandList->SetDescriptorHeaps(1, heaps);
         // Set slot 0 of our root signature to point to our descriptor heap with
@@ -213,6 +208,18 @@ void DirectXRenderer::Render() {
         commandList->IASetIndexBuffer(&mIndexBufferView);
         commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
     }
+
+    mGrassParticles->Draw(m_currentFrame, commandList);
+
+    commandList->SetPipelineState(mPso.Get());
+    commandList->SetGraphicsRootSignature(mRootSignature.Get());
+    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    // Set slot 1 of our root signature to the constant buffer view
+    commandList->SetGraphicsRootConstantBufferView(1, mPistolConstantBuffers[m_currentFrame]->GetGPUVirtualAddress());
+    md5PistolModel->Draw(commandList);
+
+    commandList->SetGraphicsRootConstantBufferView(1, mMonsterConstantBuffers[m_currentFrame]->GetGPUVirtualAddress());
+    md5MonsterModel->Draw(commandList);
 
     mSkyBox->Draw(m_currentFrame, commandList);
 
@@ -459,7 +466,8 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     CreateConstantBuffer();
 
     // landscape
-    mLandscapeTexture = utils::CreateTexture(mDevice.Get(), uploadCommandList.Get(), {"landscape.png"});
+    mLandscapeTexture =
+        utils::CreateTexture(mDevice.Get(), uploadCommandList.Get(), {"stone_floor.jpg"});
     CreateMeshBuffers(uploadCommandList.Get());
 
     mPistolAnimationsActions[PISTOL_ANIM::IDLE] = nullptr;
@@ -542,6 +550,9 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
 
     mSkyBox = std::make_unique<SkyBox>(mDevice.Get(), mCommandQueue.Get(), uploadCommandList.Get(), "skybox.dds");
 
+    mGrassParticles = std::make_unique<ParticleSystem>(mDevice.Get(), mCommandQueue.Get(), uploadCommandList.Get(), "grass2.png",
+                                                       500000, -FAR_PLANE, FAR_PLANE);
+
     SetupImGui();
 
     uploadCommandList->Close();
@@ -600,13 +611,17 @@ void DirectXRenderer::CreateMeshBuffers(ID3D12GraphicsCommandList* uploadCommand
         float position[3];
         float uv[2];
         float normal[3];
+        float tangent[3];
+        float bitangent[3];
     };
 
     constexpr float landscapeScaleFactor = FAR_PLANE;
-    const Vertex vertices[4] = {{{-1.0f * landscapeScaleFactor, 0.0f, -1.0f * landscapeScaleFactor}, {0, 0}, {0, 1, 0}},
-                                {{-1.0f * landscapeScaleFactor, 0.0f, 1.0f * landscapeScaleFactor}, {1, 0}, {0, 1, 0}},
-                                {{1.0f * landscapeScaleFactor, 0.0f, 1.0f * landscapeScaleFactor}, {1, 1}, {0, 1, 0}},
-                                {{1.0f * landscapeScaleFactor, 0.0f, -1.0f * landscapeScaleFactor}, {0, 1}, {0, 1, 0}}};
+    constexpr float U_MAX = 600;
+    constexpr float V_MAX = 600;
+    const Vertex vertices[4] = {{{-1.0f * landscapeScaleFactor, 0.0f, -1.0f * landscapeScaleFactor}, {0, 0},         {0, 1, 0}, {0, 0, 1}, {1, 0, 0}},
+                                {{-1.0f * landscapeScaleFactor, 0.0f, 1.0f * landscapeScaleFactor},  {U_MAX, 0},     {0, 1, 0}, {0, 0, 1}, {1, 0, 0}},
+                                {{1.0f * landscapeScaleFactor, 0.0f, 1.0f * landscapeScaleFactor},   {U_MAX, V_MAX}, {0, 1, 0}, {0, 0, 1}, {1, 0, 0}},
+                                {{1.0f * landscapeScaleFactor, 0.0f, -1.0f * landscapeScaleFactor},  {0, V_MAX},     {0, 1, 0}, {0, 0, 1}, {1, 0, 0}}};
 
     const int indices[6] = {0, 1, 2, 2, 3, 0};
 
@@ -827,7 +842,7 @@ void DirectXRenderer::UpdateConstantBuffer() {
         const auto& viewProj = mCamera->viewProjMat();
         // landscape doesn't have model matrix since it's static object
         mConstantBufferData.mvp = DirectX::XMMatrixMultiply(viewProj.view, viewProj.proj);
-        mConstantBufferData.model = XMMatrixIdentity();
+        mConstantBufferData.model = DirectX::XMMatrixIdentity();
 
         void* data;
         mLandScapeConstantBuffers[m_currentFrame]->Map(0, nullptr, &data);

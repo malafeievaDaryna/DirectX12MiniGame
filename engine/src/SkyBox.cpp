@@ -42,7 +42,7 @@ const char fs_shader[] =
 }  // namespace
 
 SkyBox::SkyBox(ID3D12Device* device, ID3D12CommandQueue* commandQueue, ID3D12GraphicsCommandList* uploadCommandList,
-               const std::string ddsFileName) {
+               const std::string& ddsFileName) {
     assert(device && commandQueue && uploadCommandList && !ddsFileName.empty());
     std::string ddsFilePath = constants::TEXTURE_PATH + ddsFileName;
     std::wstring ddsFilePathW(ddsFilePath.begin(), ddsFilePath.end());
@@ -69,7 +69,7 @@ SkyBox::SkyBox(ID3D12Device* device, ID3D12CommandQueue* commandQueue, ID3D12Gra
 
 void SkyBox::Update(UINT32 currentFrame, const Camera::ViewProj& viewProj) {
     /**
-    * NOTE: skybox spinning
+    * NOTE: rotating skybox
     static float angle = 0.0f;
     angle += 0.01f;
     const static DirectX::XMVECTOR rotationAxis = DirectX::XMVectorSet(0, 1, 0, 0);
