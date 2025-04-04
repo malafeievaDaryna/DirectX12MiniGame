@@ -432,7 +432,7 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
 
     Camera::Perstective perspective;
     float aspectRatio = static_cast<float>(mWindow->width()) / mWindow->height();
-    perspective.fovy = 45.0f;
+    perspective.fovy = 55.0f;
     perspective.aspect = aspectRatio;
     perspective._near = 0.01f;
     perspective._far = FAR_PLANE;
@@ -466,8 +466,7 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     CreateConstantBuffer();
 
     // landscape
-    mLandscapeTexture =
-        utils::CreateTexture(mDevice.Get(), uploadCommandList.Get(), {"stone_floor.jpg"});
+    mLandscapeTexture = utils::CreateTexture(mDevice.Get(), uploadCommandList.Get(), {"stone_floor.jpg", "stone_floor_height.jpg"});
     CreateMeshBuffers(uploadCommandList.Get());
 
     mPistolAnimationsActions[PISTOL_ANIM::IDLE] = nullptr;
@@ -551,7 +550,7 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     mSkyBox = std::make_unique<SkyBox>(mDevice.Get(), mCommandQueue.Get(), uploadCommandList.Get(), "skybox.dds");
 
     mGrassParticles = std::make_unique<ParticleSystem>(mDevice.Get(), mCommandQueue.Get(), uploadCommandList.Get(), "grass2.png",
-                                                       500000, -FAR_PLANE, FAR_PLANE);
+                                                       1200000, -FAR_PLANE, FAR_PLANE);
 
     SetupImGui();
 
@@ -616,12 +615,12 @@ void DirectXRenderer::CreateMeshBuffers(ID3D12GraphicsCommandList* uploadCommand
     };
 
     constexpr float landscapeScaleFactor = FAR_PLANE;
-    constexpr float U_MAX = 600;
-    constexpr float V_MAX = 600;
-    const Vertex vertices[4] = {{{-1.0f * landscapeScaleFactor, 0.0f, -1.0f * landscapeScaleFactor}, {0, 0},         {0, 1, 0}, {0, 0, 1}, {1, 0, 0}},
-                                {{-1.0f * landscapeScaleFactor, 0.0f, 1.0f * landscapeScaleFactor},  {U_MAX, 0},     {0, 1, 0}, {0, 0, 1}, {1, 0, 0}},
-                                {{1.0f * landscapeScaleFactor, 0.0f, 1.0f * landscapeScaleFactor},   {U_MAX, V_MAX}, {0, 1, 0}, {0, 0, 1}, {1, 0, 0}},
-                                {{1.0f * landscapeScaleFactor, 0.0f, -1.0f * landscapeScaleFactor},  {0, V_MAX},     {0, 1, 0}, {0, 0, 1}, {1, 0, 0}}};
+    constexpr float U_MAX = 0.11f * FAR_PLANE;
+    constexpr float V_MAX = 0.11f * FAR_PLANE;
+    const Vertex vertices[4] = {{{-1.0f * landscapeScaleFactor, 0.0f, -1.0f * landscapeScaleFactor}, {0, 0},         {0, 1, 0}, {1, 0, 1}, {-1, 0, 1}},
+                                {{-1.0f * landscapeScaleFactor, 0.0f, 1.0f * landscapeScaleFactor},  {U_MAX, 0},     {0, 1, 0}, {-1, 0, -1}, {1, 0, 1}},
+                                {{1.0f * landscapeScaleFactor, 0.0f, 1.0f * landscapeScaleFactor},   {U_MAX, V_MAX}, {0, 1, 0}, {-1, 0, 1}, {1, 0, -1}},
+                                {{1.0f * landscapeScaleFactor, 0.0f, -1.0f * landscapeScaleFactor},  {0, V_MAX},     {0, 1, 0}, {1, 0, 1}, {-1, 0, -1}}};
 
     const int indices[6] = {0, 1, 2, 2, 3, 0};
 
@@ -751,7 +750,8 @@ void DirectXRenderer::CreateRootSignature() {
     // We don't use another descriptor heap for the sampler, instead we use a
     // static sampler
     CD3DX12_STATIC_SAMPLER_DESC samplers[1];
-    samplers[0].Init(0, D3D12_FILTER_MIN_MAG_LINEAR_MIP_POINT);
+    samplers[0].Init(0, D3D12_FILTER_ANISOTROPIC);
+    samplers[0].MaxAnisotropy = 16u;
 
     CD3DX12_ROOT_SIGNATURE_DESC descRootSignature;
 
@@ -843,11 +843,15 @@ void DirectXRenderer::UpdateConstantBuffer() {
         // landscape doesn't have model matrix since it's static object
         mConstantBufferData.mvp = DirectX::XMMatrixMultiply(viewProj.view, viewProj.proj);
         mConstantBufferData.model = DirectX::XMMatrixIdentity();
+        mConstantBufferData.isNormalMapInsteadParalaxMapping = false;
 
         void* data;
         mLandScapeConstantBuffers[m_currentFrame]->Map(0, nullptr, &data);
         memcpy(data, &mConstantBufferData, sizeof(mConstantBufferData));
         mLandScapeConstantBuffers[m_currentFrame]->Unmap(0, nullptr);
+
+        // reset the flag, only landscape uses paralax mapping
+        mConstantBufferData.isNormalMapInsteadParalaxMapping = true;
     }
 }
 

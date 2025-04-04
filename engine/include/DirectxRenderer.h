@@ -24,6 +24,7 @@ class DirectXRenderer {
         DirectX::XMMATRIX model;
         DirectX::XMFLOAT4 lightPos;
         DirectX::XMFLOAT4 lightDir;
+        BOOL isNormalMapInsteadParalaxMapping{TRUE};
     };
 
     enum class PISTOL_ANIM { IDLE = 0, RELOAD, FIRE, MAX };

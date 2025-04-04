@@ -90,7 +90,7 @@ Window::Window(const std::string& title, const int width, const int height)
 
     ImGui_ImplWin32_Init(mHwnd);
 
-    ShowWindow(mHwnd, SW_SHOW);
+    ShowWindow(mHwnd, SW_SHOWMAXIMIZED);
 
     ShowCursor(false);
 

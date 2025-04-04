@@ -79,8 +79,9 @@ const char fs_shader[] =
     "				float2 uv : TEXCOORD, float3 positionWorld : TEXCOORD1) : SV_TARGET\n"
     "{\n"
     "	PixelShaderOutput output = (PixelShaderOutput)0;\n"
-    "   float attenuation  = getFlashLightAttenuation(LightPos.xyz, LightDir.xyz, positionWorld, 1000.0f);\n"
-    "	output.color = attenuation * inputTexture.Sample (texureSampler, float3(uv[0], uv[1], 0));\n"
+    "   float attenuation  =  0.9 * getFlashLightAttenuation(LightPos.xyz, LightDir.xyz, positionWorld, 1000.0f);\n"
+    "	output.color = inputTexture.Sample (texureSampler, float3(uv[0], uv[1], 0));\n"
+    "	output.color.xyz = attenuation * output.color.xyz;\n"
     "	return output;\n"
     "}\n";
 }  // namespace
