@@ -176,15 +176,38 @@ void DirectXRenderer::Render() {
     commandList->ResourceBarrier(1, &barrierBefore);
 
     assert(mPistolAnimationsActions.find(mCurPistolAnim) != mPistolAnimationsActions.end());
-    md5PistolModel->UpdateMD5Model(frameTimeMS, static_cast<int>(mCurPistolAnim), mPistolAnimationsActions[mCurPistolAnim]);
+    md5PistolModel->UpdateMD5Model(mFrameTimeMS, static_cast<int>(mCurPistolAnim), mPistolAnimationsActions[mCurPistolAnim]);
     assert(mMonsterAnimationsActions.find(mCurMonsterAnim) != mMonsterAnimationsActions.end());
-    md5MonsterModel->UpdateMD5Model(frameTimeMS, static_cast<int>(mCurMonsterAnim), mMonsterAnimationsActions[mCurMonsterAnim]);
+    md5MonsterModel->UpdateMD5Model(mFrameTimeMS, static_cast<int>(mCurMonsterAnim), mMonsterAnimationsActions[mCurMonsterAnim]);
 
     mSkyBox->Update(m_currentFrame, mCamera->viewProjMat());
 
-    mGrassParticles->Update(m_currentFrame, mCamera->viewProjMat(), mCamera->cameraPosition(), mCamera->targetPosition());
+    {
+        mConstantBufferData.lightPos = mCamera->cameraPosition();
+        mConstantBufferData.lightDir = mCamera->targetPosition();
 
+        static float sign = -1.0f;
+        // FlashLightYOffset is complied with 144 FPS
+        float frameTimeFactor = mFrameTimeMS >= constants::_144_FPS_TO_MS ? 1 : (mFrameTimeMS / constants::_144_FPS_TO_MS);
+
+        float delta = sign * 0.00015f * frameTimeFactor;
+        mFlashLightYOffset += delta;
+        if (mFlashLightYOffset >= 0.01f) {
+            mFlashLightYOffset = 0.01f;
+            sign *= -1.0f;
+        } else if (mFlashLightYOffset <= -0.01f) {
+            mFlashLightYOffset = -0.01f;
+            sign *= -1.0f;
+        }
+
+        auto shiftedightDir = XMLoadFloat4(&mConstantBufferData.lightDir);
+        DirectX::XMVECTOR flashLightYOffset = DirectX::XMVectorSet(0.0f, mFlashLightYOffset, 0.0f, 0.0f);
+        shiftedightDir = XMVectorAdd(shiftedightDir, flashLightYOffset);
+        DirectX::XMStoreFloat4(&mConstantBufferData.lightDir, shiftedightDir);
+    }
     UpdateConstantBuffer();
+
+    mGrassParticles->Update(m_currentFrame, mCamera->viewProjMat(), mCamera->cameraPosition(), mConstantBufferData.lightDir);
 
     static const float clearColor[] = {1.0f, 1.0f, 1.0f, 1.0f};
 
@@ -256,12 +279,12 @@ void DirectXRenderer::Render() {
     assert(m_currentFrame < MAX_FRAMES_IN_FLIGHT);
 
     endTime = std::chrono::high_resolution_clock::now();
-    frameTimeMS = std::chrono::duration<float, std::chrono::milliseconds::period>(endTime - startTime).count();
+    mFrameTimeMS = std::chrono::duration<float, std::chrono::milliseconds::period>(endTime - startTime).count();
     startTime = endTime;
 
 #ifdef _DEBUG
     FPS_METRICS.second.first += 1;             // plus one frame
-    FPS_METRICS.second.second += frameTimeMS;  // plus the time spent to draw the frame
+    FPS_METRICS.second.second += mFrameTimeMS;  // plus the time spent to draw the frame
     if (FPS_METRICS.second.second >= 1000u) {  // how many frames have we drawn within ~1sec
         FPS_METRICS.first = FPS_METRICS.second.second * FPS_METRICS.second.first / 1000.0f;
         FPS_METRICS.second = std::pair<uint32_t, float>{0u, 0.0f};  // actual FPS
@@ -270,9 +293,9 @@ void DirectXRenderer::Render() {
 }
 
 bool DirectXRenderer::Run() {
-    // log_debug("frameTimeMS ", frameTimeMS);
+    // log_debug("mFrameTimeMS ", mFrameTimeMS);
     /** For debug only to lock FPS
-    float sleep = constants::_144_FPS_TO_MS - frameTimeMS;
+    float sleep = constants::_144_FPS_TO_MS - mFrameTimeMS;
     sleep = sleep > 0 ? sleep : 0;
     Sleep(sleep);
     */
@@ -310,25 +333,25 @@ bool DirectXRenderer::Run() {
     lastMouseY = defaultMousePos.y;
 
     if (deltaMouseX < 0) {
-        mCamera->update(frameTimeMS, Camera::EDirection::Turn_Left);
+        mCamera->update(mFrameTimeMS, Camera::EDirection::Turn_Left);
     } else if (deltaMouseX > 0) {
-        mCamera->update(frameTimeMS, Camera::EDirection::Turn_Right);
+        mCamera->update(mFrameTimeMS, Camera::EDirection::Turn_Right);
     }
 
     if (kb.Escape) {
         return false;
     }
     if (kb.W || kb.Up) {
-        mCamera->update(frameTimeMS, Camera::EDirection::Forward);
+        mCamera->update(mFrameTimeMS, Camera::EDirection::Forward);
     }
     if (kb.A || kb.Left) {
-        mCamera->update(frameTimeMS, Camera::EDirection::Left);
+        mCamera->update(mFrameTimeMS, Camera::EDirection::Left);
     }
     if (kb.S || kb.Down) {
-        mCamera->update(frameTimeMS, Camera::EDirection::Back);
+        mCamera->update(mFrameTimeMS, Camera::EDirection::Back);
     }
     if (kb.D || kb.Right) {
-        mCamera->update(frameTimeMS, Camera::EDirection::Right);
+        mCamera->update(mFrameTimeMS, Camera::EDirection::Right);
     }
 
     Render();
@@ -550,7 +573,7 @@ void DirectXRenderer::Initialize(const std::string& title, int width, int height
     mSkyBox = std::make_unique<SkyBox>(mDevice.Get(), mCommandQueue.Get(), uploadCommandList.Get(), "skybox.dds");
 
     mGrassParticles = std::make_unique<ParticleSystem>(mDevice.Get(), mCommandQueue.Get(), uploadCommandList.Get(), "grass2.png",
-                                                       1200000, -FAR_PLANE, FAR_PLANE);
+                                                       2000000, -FAR_PLANE, FAR_PLANE);
 
     SetupImGui();
 
@@ -797,9 +820,6 @@ void DirectXRenderer::CreateConstantBuffer() {
 
 void DirectXRenderer::UpdateConstantBuffer() {
     static auto rotation = XMMatrixRotationQuaternion(_md5RotAdjustment);
-
-    mConstantBufferData.lightPos = mCamera->cameraPosition();
-    mConstantBufferData.lightDir = mCamera->targetPosition();
 
     // pistol mvp matrix
     {

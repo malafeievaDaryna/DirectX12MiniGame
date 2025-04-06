@@ -110,5 +110,7 @@ private:
 
     std::unique_ptr<ParticleSystem> mGrassParticles{};
 
-    float frameTimeMS = 0.0f;
+    float mFlashLightYOffset{0.0f};
+
+    float mFrameTimeMS{0.0f};
 };
