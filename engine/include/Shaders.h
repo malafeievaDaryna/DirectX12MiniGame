@@ -13,6 +13,13 @@
        attenuation  =  lightFactor * attenuation;\n \
        return attenuation;\n \
     }\n"
+#define SHOOTING_FLASH_CALCULATION \
+    "float getShootingFlashAttenuation(float3 lightPos, float3 positionWorld, float radius)\n \
+    {\n \
+       float attenuation  = 1.0 - pow(saturate(length(lightPos - positionWorld) / radius), 3);\n \
+       attenuation  =  attenuation;\n \
+       return attenuation;\n \
+    }\n"
 namespace shaders {
 namespace simple {
 const char vs_shader[] =
@@ -51,6 +58,7 @@ const char vs_shader[] =
     "	matrix Model;\n"
     "	float4 LightPos;\n"
     "	float4 LightDir;\n"
+    "	bool isMountedToCameraObject;\n"
     "	bool isNormalMapInsteadParalaxMapping;\n"
     "}\n"
     "struct VertexShaderOutput\n"
@@ -91,11 +99,15 @@ const char fs_shader[] =
     "	matrix Model;\n"
     "	float4 LightPos;\n"
     "	float4 LightDir;\n"
+    "	bool isMountedToCameraObject;\n"
     "	bool isNormalMapInsteadParalaxMapping;\n"
+    "	float shootingAnimTimeMS;\n"
+    "	float accumulatedTimeMS;\n"
     "}\n" 
     "Texture2DArray<float4> inputTexture : register(t0);\n"
     "SamplerState     texureSampler : register(s0);\n" 
-    FLASH_LIGHT_CALCULATION
+    FLASH_LIGHT_CALCULATION 
+    SHOOTING_FLASH_CALCULATION
     "float2 getParalaxMapping(float2 uv, float3 viewDir)\n"
     "{\n " 
     "   //number of depth layers\n"
@@ -148,7 +160,14 @@ const char fs_shader[] =
     "   }\n" 
     "	float4 diffuseLighting = inputTexture.Sample (texureSampler, float3(texCoords[0], texCoords[1], 0));\n" 
     "	float3 fragmentToLightDir = normalize(LightPos.xyz - positionWorld);\n "
-    "   float attenuation  = 0.3 * getFlashLightAttenuation(LightPos.xyz, LightDir.xyz, positionWorld, 1000.0f);\n"
+    "   float attenuation = isMountedToCameraObject ? 0.0 : 0.3 * getFlashLightAttenuation(LightPos.xyz, LightDir.xyz, positionWorld, 1000.0f);\n"
+    "   if (accumulatedTimeMS < shootingAnimTimeMS) { \n"
+    "      float fading = (shootingAnimTimeMS - accumulatedTimeMS) / shootingAnimTimeMS;\n"
+    "      /*different kind of objects has own factors*/\n"
+    "      float shootingAttenuation = !isNormalMapInsteadParalaxMapping ? 0.4 : 1.2;\n/*the stones are too bright*/"
+    "      shootingAttenuation *= isMountedToCameraObject ? 0.5 : getShootingFlashAttenuation(LightPos.xyz, positionWorld, 800.0f);\n"
+    "      attenuation = max(shootingAttenuation, attenuation);\n"
+    "   } \n"
     "   float3 viewDir  = fragmentToLightDir;"
     "   float3 reflectDir = reflect(-fragmentToLightDir, localNormal);"
     "   float3 halfwayDir = normalize(fragmentToLightDir + viewDir);"

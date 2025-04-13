@@ -205,6 +205,12 @@ void DirectXRenderer::Render() {
         shiftedightDir = XMVectorAdd(shiftedightDir, flashLightYOffset);
         DirectX::XMStoreFloat4(&mConstantBufferData.lightDir, shiftedightDir);
     }
+
+    if (mCurPistolAnim == PISTOL_ANIM::FIRE)
+        mConstantBufferData.accumulatedTimeMS += mFrameTimeMS;
+    else
+        mConstantBufferData.accumulatedTimeMS = 2.0f * mConstantBufferData.shootingAnimTimeMS; // stopping the animattion
+
     UpdateConstantBuffer();
 
     mGrassParticles->Update(m_currentFrame, mCamera->viewProjMat(), mCamera->cameraPosition(), mConstantBufferData.lightDir);
@@ -238,11 +244,10 @@ void DirectXRenderer::Render() {
     commandList->SetGraphicsRootSignature(mRootSignature.Get());
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     // Set slot 1 of our root signature to the constant buffer view
-    commandList->SetGraphicsRootConstantBufferView(1, mPistolConstantBuffers[m_currentFrame]->GetGPUVirtualAddress());
-    md5PistolModel->Draw(commandList);
-
     commandList->SetGraphicsRootConstantBufferView(1, mMonsterConstantBuffers[m_currentFrame]->GetGPUVirtualAddress());
     md5MonsterModel->Draw(commandList);
+    commandList->SetGraphicsRootConstantBufferView(1, mPistolConstantBuffers[m_currentFrame]->GetGPUVirtualAddress());
+    md5PistolModel->Draw(commandList);
 
     mSkyBox->Draw(m_currentFrame, commandList);
 
@@ -315,6 +320,7 @@ bool DirectXRenderer::Run() {
 
     if (mMouse->GetState().leftButton) {
         mCurPistolAnim = PISTOL_ANIM::FIRE;
+        mConstantBufferData.accumulatedTimeMS = 0.0f;
     }
 
     auto kb = mKeyboard->GetState();
@@ -833,11 +839,16 @@ void DirectXRenderer::UpdateConstantBuffer() {
         DirectX::XMMATRIX modelView = model;
         mConstantBufferData.mvp = DirectX::XMMatrixMultiply(modelView, viewProj.proj);
         mConstantBufferData.model = model;
+        // the Pistol with Arm always follows the camera
+        // it doesn't have the valid world coordinates it is located in camera space position
+        mConstantBufferData.isMountedToCameraObject = true; 
 
         void* data;
         mPistolConstantBuffers[m_currentFrame]->Map(0, nullptr, &data);
         memcpy(data, &mConstantBufferData, sizeof(mConstantBufferData));
         mPistolConstantBuffers[m_currentFrame]->Unmap(0, nullptr);
+
+        mConstantBufferData.isMountedToCameraObject = false; // restore
     }
 
     // monster mvp matrix

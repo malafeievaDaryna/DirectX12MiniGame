@@ -24,7 +24,10 @@ class DirectXRenderer {
         DirectX::XMMATRIX model;
         DirectX::XMFLOAT4 lightPos;
         DirectX::XMFLOAT4 lightDir;
+        BOOL isMountedToCameraObject{FALSE};
         BOOL isNormalMapInsteadParalaxMapping{TRUE};
+        float shootingAnimTimeMS{50.0f};
+        float accumulatedTimeMS;
     };
 
     enum class PISTOL_ANIM { IDLE = 0, RELOAD, FIRE, MAX };
