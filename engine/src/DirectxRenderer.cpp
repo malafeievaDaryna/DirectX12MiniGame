@@ -14,6 +14,7 @@
 #include <ResourceUploadBatch.h >
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 
 #include <imgui/backends/imgui_impl_dx12.h>
 #include <imgui/backends/imgui_impl_win32.h>

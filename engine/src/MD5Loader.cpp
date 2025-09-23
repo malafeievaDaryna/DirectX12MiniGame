@@ -359,9 +359,9 @@ void MD5Loader::UpdateMD5Model(float deltaTimeMS, int animation, const std::func
         const int32_t indicesSize = sizeof(uint32_t) * mMD5Model.subsets[k].numTriangles * 3;
         const int32_t verticesSize = sizeof(Vertex) * mMD5Model.subsets[k].vertices.size();
         void* data;
-        mMD5Model.subsets[k].indicesBuffer->Map(0, nullptr, &data);
-        memcpy(data, mMD5Model.subsets[k].indices.data(), indicesSize);
-        mMD5Model.subsets[k].indicesBuffer->Unmap(0, nullptr);
+        //mMD5Model.subsets[k].indicesBuffer->Map(0, nullptr, &data);
+        //memcpy(data, mMD5Model.subsets[k].indices.data(), indicesSize);
+        //mMD5Model.subsets[k].indicesBuffer->Unmap(0, nullptr);
 
         mMD5Model.subsets[k].verticesBuffer->Map(0, nullptr, &data);
         memcpy(data, mMD5Model.subsets[k].vertices.data(), verticesSize);

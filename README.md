@@ -7,11 +7,13 @@
 </br> <b>Technologies:</b> C++ 17, DirectX12, DirectXTK12(user input), CMake, WinApi, stb_image, directxmath
 <p><img src="demo.png" width="60%" height="60%"></p>
 <p>This is simple game engine based on own engine run by DirectX12, DirectXTK12 utils(user input)
+<a href="https://www.youtube.com/watch?v=4W6dGhUtd8c">See Demo Video</a>
 currently it supports such features as
 <ol>
   <li>support for animated models (md5 format), the parser was implemented from scratch it's the port of OpenGL based parser of ID TECH 4 engine (Doom 3) with reworked math and rendering api;
   in short the animation is calculated by directxmath and then generated submeshes of current frame are pushed to DirectX12 pipeline </li>
-  </li>
+  <li>paralax mapping for terrain</li>
+  <li>flashlight with attenuation</li>
 </ol></p>
 <p><b>HOWTO BUILD:</b>
 </br>
