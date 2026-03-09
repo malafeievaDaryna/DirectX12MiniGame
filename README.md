@@ -19,7 +19,7 @@ currently it supports such features as
 </br>
 You have to fetch DirectXTK12 lib as git submodule before building
 </br>
-git submodule init && cd build
+git submodule update --init --recursive && cd build
 </br>
 </br>
 <b><i>cmake.exe ..\ -G "Visual Studio 17 2022"</i></b>

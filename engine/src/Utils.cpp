@@ -119,21 +119,29 @@ Texture2DResource CreateTexture(ID3D12Device* device, ID3D12GraphicsCommandList*
     device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &uploadBufferDesc,
                                     D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&textureResource.stagingBuffer));
 
-    char* data = (char*)malloc(imageSizeTotal);
+ 
+    // Prepare a vector of subresource data for ALL layers
+    std::vector<D3D12_SUBRESOURCE_DATA> allSubresources(texturesAmount);
+    // For a texture with a width of 178, the data size is bytes per row.However,
+    // DirectX 12 requires every row in the upload buffer to be a multiple of 256 bytes.
+    // The nearest valid size is 768 bytes.When you copy 712 bytes into a
+    // space expecting 768 without adding "padding"(empty bytes)at the end of each line,
+    // the image shifts and looks broken.
+
     for (std::size_t i = 0u; i < texturesAmount; ++i) {
-        memcpy((void*)(data + (layerSize * i)), textureData[i].get(), static_cast<size_t>(layerSize));
+        allSubresources[i].pData = textureData[i].get();
+        allSubresources[i].RowPitch = texWidth * 4;                // source width (712 bytes per row) but must be 768 bytes with auto padding 
+        allSubresources[i].SlicePitch = texWidth * texHeight * 4;  // source size
     }
 
-    D3D12_SUBRESOURCE_DATA srcData;
-    srcData.RowPitch = texWidth * 4;
-    srcData.SlicePitch = texWidth * texHeight * 4;
-
-    for (std::size_t i = 0u; i < texturesAmount; ++i) {
-        srcData.pData = (void*)(data + (layerSize * i));
-        UpdateSubresources(uploadCommandList, textureResource.image.Get(), textureResource.stagingBuffer.Get(), (layerSize * i),
-                           i, 1,
-                           &srcData);
-    }
+    // Call UpdateSubresources ONCE for the entire array
+    // This automatically handles the 512-byte alignment between layers
+    // AND the 256-byte alignment for each row (712 -> 768 bytes).
+    UpdateSubresources(uploadCommandList, textureResource.image.Get(), textureResource.stagingBuffer.Get(),
+                       0,                     // IntermediateOffset for auto-calculations
+                       0,                     // FirstSubresource for auto-calculations
+                       (UINT)texturesAmount,  // NumSubresources: pass the whole count
+                       allSubresources.data());
 
     const auto transition = CD3DX12_RESOURCE_BARRIER::Transition(textureResource.image.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
                                                                  D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
@@ -161,8 +169,6 @@ Texture2DResource CreateTexture(ID3D12Device* device, ID3D12GraphicsCommandList*
 
     device->CreateShaderResourceView(textureResource.image.Get(), &shaderResourceViewDesc,
                                      textureResource.srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
-
-    free((void*)data);
 
     return textureResource;
 }

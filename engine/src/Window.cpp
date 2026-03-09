@@ -87,7 +87,9 @@ Window::Window(const std::string& title, const int width, const int height)
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;  // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;   // Enable Gamepad Controls
     ImGui::StyleColorsDark();
-
+    
+    io.Fonts->Build();
+    
     ImGui_ImplWin32_Init(mHwnd);
 
     ShowWindow(mHwnd, SW_SHOWMAXIMIZED);
