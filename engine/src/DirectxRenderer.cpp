@@ -181,7 +181,7 @@ void DirectXRenderer::Render() {
     assert(mMonsterAnimationsActions.find(mCurMonsterAnim) != mMonsterAnimationsActions.end());
     md5MonsterModel->UpdateMD5Model(mFrameTimeMS, static_cast<int>(mCurMonsterAnim), mMonsterAnimationsActions[mCurMonsterAnim]);
 
-    mSkyBox->Update(m_currentFrame, mCamera->viewProjMat());
+    mSkyBox->Update(m_currentFrame, mCamera->viewProjMat(), mFrameTimeMS);
 
     {
         mConstantBufferData.lightPos = mCamera->cameraPosition();

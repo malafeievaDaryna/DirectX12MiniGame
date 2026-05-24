@@ -12,14 +12,15 @@
 #include "Utils.h"
 
 class SkyBox {
-    struct ConstantBuffer {
+    struct alignas(16) ConstantBuffer {
         DirectX::XMMATRIX mvp;
+        float T;            // accumulated time in seconds passed to shader
     };
 
 public:
     SkyBox(ID3D12Device* device, ID3D12CommandQueue* commandQueue, ID3D12GraphicsCommandList* uploadCommandList,
            const std::string& ddsFileName);
-    void Update(UINT32 currentFrame, const Camera::ViewProj& viewProj);
+    void Update(UINT32 currentFrame, const Camera::ViewProj& viewProj, float frameTimeMS);
     void Draw(UINT32 currentFrame, ID3D12GraphicsCommandList* commandList);
 
 private:
@@ -40,9 +41,11 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> mIndexBuffer{};
     D3D12_INDEX_BUFFER_VIEW mIndexBufferView{};
 
-    // MVP matrix
+    // MVP matrix + time
     ConstantBuffer mConstantBufferData{};
     Microsoft::WRL::ComPtr<ID3D12Resource> mConstantBuffers[constants::MAX_FRAMES_IN_FLIGHT];
+
+    float mAccumulatedTimeS{0.0f};
 
     // PIPELINE&SHADER
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignature{};
